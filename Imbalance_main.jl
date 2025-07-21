@@ -59,16 +59,16 @@ systemData = set_period!(systemData, start_hour, sim_days)
 
 allocations = [
     "shapley",
-    "VCG",
-    "VCG_budget_balanced",
-    "gately",
+    #"VCG",
+    #"VCG_budget_balanced",
+    #"gately",
     #"gately_daily",
     #"gately_interval",
-    #"full_cost",
+    "full_cost",
     #"reduced_cost",
     #"nucleolus",
     #"equal_share",
-    "cost_based"
+    #"cost_based"
 ]
 
 # =========================
@@ -76,7 +76,7 @@ allocations = [
 # =========================
 # Calculating costs
 println("Calculating imbalance costs...")
-coalitionCosts, imbalances = @time imbalance_costs(systemData, clients, start_hour, sim_days; printing=false)
+coalitionCosts, imbalances, imbalancesDict = @time imbalance_costs(systemData, clients, start_hour, sim_days; printing=false)
 
 
 # Calculating CVaR
@@ -98,14 +98,14 @@ println("Calculating allocations...")
 #daily_cost_MWh_imbalance, allocation_costs, imbalances, hourly_imbalances = @time allocation_variance(allocations, clients, coalitions, systemData, start_hour, sim_days)
 
 allocation_costs = calculate_allocations(
-    allocations, clients, coalitions, coalitionCosts, imbalances, systemData, alpha; printing = true
+    allocations, clients, coalitions, coalitionCosts, imbalances, imbalancesDict, systemData; printing = true
     )
 
 # Checking stability
 max_instability = Dict{String, Float64}()
 for alloc in allocations
     println("Checking stability for allocation: ", alloc)
-    max_instability[alloc] = check_stability(allocation_costs[alloc], coalitionCVaR, clients)
+    max_instability[alloc] = check_stability(allocation_costs[alloc], coalitionCosts, clients)
 end
 println("Max instabilities: ", max_instability)
 

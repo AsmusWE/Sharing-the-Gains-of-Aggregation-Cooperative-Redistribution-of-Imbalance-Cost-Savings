@@ -224,8 +224,13 @@ function imbalance_costs(systemData, clients, startDay, days; printing=false, ch
         imbalance_costs = max.(imbalance_with_direction, 0) .* abs.(imbalance_spread)
         coalition_costs[coalition] = sum(imbalance_costs)
     end
+    # Convert period_interval_imbalance to a dictionary for easier access
+    imbalanceDict = Dict{Any, Vector{Float64}}()
+    for (i, coalition) in enumerate(coalitions)
+        imbalanceDict[coalition] = view(period_interval_imbalance, i, :)
+    end
 
-    return coalition_costs, period_interval_imbalance
+    return coalition_costs, period_interval_imbalance, imbalanceDict
 end
 
 function create_time_period_data(systemData, startDay, intervals)

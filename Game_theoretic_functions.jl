@@ -5,26 +5,25 @@ using Combinatorics, HiGHS, JuMP#, Gurobi, NLsolve,
 
 
 function calculate_allocations(
-    allocations, clients, coalitions, coalitionCVaR, hourly_imbalances, systemData, alpha; printing = true, return_time = false
+    allocations, clients, coalitions, coalitionCosts, hourly_imbalances, imbalancesDict,systemData; printing = true, return_time = false
     )
     allocation_times = Dict{String, Float64}()
     allocation_costs = Dict{String, Any}()
     allocation_map = Dict(
-        "shapley" => () -> shapley_value(clients, coalitions, coalitionCVaR),
+        "shapley" => () -> shapley_value(clients, coalitions, coalitionCosts),
         #"VCG" => () -> VCG_tax(clients, coalitionCVaR, hourly_imbalances, systemData; budget_balance=false),
-        "VCG" => () -> simple_VCG(clients, coalitionCVaR),
-        "VCG_budget_balanced" => () -> VCG_BB(clients, coalitionCVaR),
-        "gately" => () -> deepcopy(gately_point(clients, coalitionCVaR)),
+        "VCG" => () -> simple_VCG(clients, coalitionCosts),
+        "VCG_budget_balanced" => () -> VCG_BB(clients, coalitionCosts),
+        "gately" => () -> deepcopy(gately_point(clients, coalitionCosts)),
         #"gately_daily" => () -> deepcopy(gately_point_daily(clients, hourly_imbalances, systemData)),
         "gately_interval" => () -> deepcopy(gately_point_interval(clients, hourly_imbalances, systemData)),
-        "full_cost" => () -> deepcopy(full_cost_transfer(clients, hourly_imbalances, systemData)),
+        "full_cost" => () -> deepcopy(full_cost_transfer(clients, coalitionCosts, imbalancesDict, systemData)),
         "reduced_cost" => () -> deepcopy(reduced_cost(clients, hourly_imbalances, systemData)),
         "nucleolus" => () -> begin
-            _, nucleolus_values = nucleolus(clients, coalitionCVaR)
+            _, nucleolus_values = nucleolus(clients, coalitionCosts)
             deepcopy(nucleolus_values)
         end,
-        "equal_share" => () -> deepcopy(equal_allocation(clients, coalitionCVaR)),
-        "cost_based" => () -> deepcopy(cost_based_allocation(clients, hourly_imbalances, systemData, alpha)),
+        "equal_share" => () -> deepcopy(equal_allocation(clients, coalitionCosts)),
     )
     allocation_print_map = Dict(
         "shapley" => "Shapley calculation time:",
@@ -147,14 +146,14 @@ function check_stability(payoffs, coalition_values, clients)
     return max_instability
 end
 
-function simple_VCG(clients, coalitionCVaR)
+function simple_VCG(clients, coalitionCosts)
     # This function calculates the VCG value for each client in the grand coalition
     grand_coalition = vec(clients)
-    grand_coalition_CVaR = coalitionCVaR[grand_coalition]
+    grand_coalition_CVaR = coalitionCosts[grand_coalition]
     utilities = Dict{String, Float64}()
     for client in clients
         coalition_wo_client = filter(x -> x != client, grand_coalition)
-        coalition_value_wo_client = coalitionCVaR[coalition_wo_client]
+        coalition_value_wo_client = coalitionCosts[coalition_wo_client]
         # Calculate the VCG value for the client
         VCG_value = (grand_coalition_CVaR-coalition_value_wo_client)
         # Store the VCG value in a dictionary
@@ -163,10 +162,10 @@ function simple_VCG(clients, coalitionCVaR)
     return utilities
 end
 
-function VCG_BB(clients, coalitionCVaR)
+function VCG_BB(clients, coalitionCosts)
     # This function calculates the VCG value for each client in the grand coalition
     # Handles budget balanced case by optimizing
-    vcg_payments = simple_VCG(clients, coalitionCVaR)
+    vcg_payments = simple_VCG(clients, coalitionCosts)
 
     model = Model(HiGHS.Optimizer)
     set_silent(model)
@@ -177,12 +176,12 @@ function VCG_BB(clients, coalitionCVaR)
     @objective(model, Min, sum(((vcg_payments[client] - payment[client])/vcg_payments[client])^2 for client in clients))
     
     # Constraint to ensure budget balance
-    @constraint(model, sum(payment) == coalitionCVaR[clients])
+    @constraint(model, sum(payment) == coalitionCosts[clients])
 
     # Constraints to ensure individual rationality
     @constraint(model, [client in clients],
-                payment[client] <= coalitionCVaR[[client]]) # Payments must be lower than solo payment
-    
+                payment[client] <= coalitionCosts[[client]]) # Payments must be lower than solo payment
+
     optimize!(model)
 
     if termination_status(model) != MOI.OPTIMAL
@@ -341,30 +340,51 @@ function gately_point_interval(clients, interval_imbalances, systemData)
     return gately_distribution
 end
 
-function full_cost_transfer(clients, hourly_imbalances, systemData)
+function full_cost_transfer(clients, imbalance_costs, imbalanceDict, systemData)
     # Initializing
-    upreg_price = systemData["upreg_price"]
-    downreg_price = systemData["downreg_price"]
-    client_cost = Dict(client => 0.0 for client in clients)
-    # Calculating cost for every hour
-    for t in 1:length(hourly_imbalances[[clients[1]]])
-        net_imbalance = hourly_imbalances[clients][t]
-        # # Calculate how much each helping client should get per imbalance
-        imbalance_price = net_imbalance > 0 ? downreg_price : upreg_price
-        # Check each client if they are helping or not, and calculate their cost
+    grand_coalition = vec(clients)
+    imbalanceSpread = systemData["price_prod_demand_df"][!, "ImbalanceSpreadEUR"]
+    dominationDirection = systemData["price_prod_demand_df"][!, "DominatingDirection"]
+    clientCost = Dict(client => 0.0 for client in clients)
+
+    for t in 1:length(imbalanceDict[[clients[1]]])
+        singletonCosts = 0.0
+        helpingImbalances = 0.0 # Imbalances opposite the dominant direction
+        # If dominant direction is 0, there is no redistribution because of no costs
+        if dominationDirection[t] == 0
+            continue
+        end
         for client in clients
-            if hourly_imbalances[[client]][t] * net_imbalance > 0
-                # Client has an imbalance in the same direction as the net imbalance
-                # Client pays their full cost
-                client_cost[client] += abs(hourly_imbalances[[client]][t]) * imbalance_price
-            else
-                # Client counteracts the net imbalance
-                # Client pays nothing and gets compensated for reducing the imbalance
-                client_cost[client] += -(abs(hourly_imbalances[[client]][t]) * imbalance_price)
+            client_imbalance = imbalanceDict[[client]][t]
+            if client_imbalance * dominationDirection[t] > 0
+                # Client has imbalance in the dominant direction
+                clientCost[client] += client_imbalance * imbalanceSpread[t]
+                singletonCosts += client_imbalance * imbalanceSpread[t]
+            elseif client_imbalance * dominationDirection[t] < 0
+                # Client has imbalance in the non-dominant direction
+                helpingImbalances += abs(client_imbalance)
+            end
+        end
+        # Calculate grand coalition cost for the current time period
+        grandCoalitionCost = 0.0
+        if imbalanceDict[grand_coalition][t] * dominationDirection[t] > 0
+            # Grand coalition has imbalance in the dominant direction
+            grandCoalitionCost = imbalanceDict[grand_coalition][t] * imbalanceSpread[t]
+        end
+
+        # Redistributing surplus to clients with imbalances in the non-dominant direction according to imbalance size
+        if helpingImbalances > 0
+            helpingPrice = (singletonCosts - grandCoalitionCost) / helpingImbalances
+            for client in clients
+                client_imbalance = imbalanceDict[[client]][t]
+                if client_imbalance * dominationDirection[t] < 0
+                    # Client has imbalance in the non-dominant direction
+                    clientCost[client] += abs(client_imbalance) * helpingPrice
+                end
             end
         end
     end
-    return client_cost
+    return clientCost
 end
 
 function reduced_cost(clients, hourly_imbalances, systemData)
