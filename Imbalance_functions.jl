@@ -214,13 +214,13 @@ function imbalance_costs(systemData, clients, startDay, days; printing=false, ch
     
     # Calculate imbalance costs for each coalition
     imbalance_spread = tempData["price_prod_demand_df"][!, "ImbalanceSpreadEUR"]
-    dominationDirection = tempData["price_prod_demand_df"][!, "DominatingDirection"]
+    dominantDirection = tempData["price_prod_demand_df"][!, "DominatingDirection"]
     coalition_costs = Dict{Any, Float64}()
     for (i, coalition) in enumerate(coalitions)
-        # Calculate costs for each coalition considering dominating direction
-        # Multiply imbalance by dominating direction, then set negative values to 0
-        # Ensures that only imbalances in dominating direction pay
-        imbalance_with_direction = period_interval_imbalance[i, :] .* dominationDirection
+        # Calculate costs for each coalition considering dominant direction
+        # Multiply imbalance by dominant direction, then set negative values to 0
+        # Ensures that only imbalances in dominant direction pay
+        imbalance_with_direction = period_interval_imbalance[i, :] .* dominantDirection
         imbalance_costs = max.(imbalance_with_direction, 0) .* abs.(imbalance_spread)
         coalition_costs[coalition] = sum(imbalance_costs)
     end
@@ -252,11 +252,32 @@ function create_time_period_data(systemData, startDay, intervals)
     return tempData
 end
 
-function set_period!(systemData, startDay, days)
+function set_period!(systemData::Dict{String, Any}, startDay, days)
     # Set up time period for the given number of days
+    # This function is used when systemData is passed, it is a dictionary
     intervals_per_day = 96  # 15-min intervals per day
     intervals = days * intervals_per_day
     return create_time_period_data(systemData, startDay, intervals)
+end
+
+function set_period!(demandData::DataFrame, startDay, days)
+    # Set up time period for the given number of days
+    # This function is used when demandData is passed, it is a DataFrame
+    intervals_per_day = 96  # 15-min intervals per day
+    intervals = days * intervals_per_day
+    start_interval = findfirst(x -> x >= startDay, demandData[!, "HourUTC_datetime"])
+    
+    try
+        end_interval = start_interval + intervals - 1
+        return demandData[start_interval:end_interval, :]
+    catch e
+        if isa(e, BoundsError)
+            data_range = "$(demandData[1, "HourUTC_datetime"]) to $(demandData[end, "HourUTC_datetime"])"
+            error("Specified time period exceeds available data range: $data_range")
+        else
+            rethrow(e)
+        end
+    end
 end
 
 function calculate_cvar_values(coalitions, period_interval_imbalance, imbalance_spread, alpha)

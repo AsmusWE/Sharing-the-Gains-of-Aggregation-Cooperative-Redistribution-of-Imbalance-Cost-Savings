@@ -31,7 +31,7 @@ coalitions = collect(combinations(clients))
 start_hour = DateTime(2025, 3, 6, 12, 0, 0)
 #start_hour = start_hour + Dates.Day(3) # Start at 00:00 of the next day
 #sim_days = 50
-sim_days = 1
+sim_days = 10
 num_scenarios = 5
 
 alpha = 0.05 # CVaR alpha level
@@ -53,22 +53,22 @@ if systemData["pv_forecast"] == "noise"
     systemData["pv_forecast_noise"] = generate_noise_forecast_PV(clients, systemData, start_hour, sim_days)
 end
 
-# Cut systemData to the simulation period
+# Cut systemData and demandData to the simulation period
 systemData = set_period!(systemData, start_hour, sim_days)
-
+demandData = set_period!(demandData, start_hour, sim_days)
 
 allocations = [
     "shapley",
-    #"VCG",
+    "VCG",
     #"VCG_budget_balanced",
-    #"gately",
+    "gately",
     #"gately_daily",
     #"gately_interval",
     "full_cost",
-    #"reduced_cost",
+    "reduced_cost",
     #"nucleolus",
-    #"equal_share",
-    #"cost_based"
+    "equal_share",
+    "flat_rate"
 ]
 
 # =========================
@@ -98,7 +98,7 @@ println("Calculating allocations...")
 #daily_cost_MWh_imbalance, allocation_costs, imbalances, hourly_imbalances = @time allocation_variance(allocations, clients, coalitions, systemData, start_hour, sim_days)
 
 allocation_costs = calculate_allocations(
-    allocations, clients, coalitions, coalitionCosts, imbalances, imbalancesDict, systemData; printing = true
+    allocations, clients, coalitions, coalitionCosts, imbalances, imbalancesDict, systemData, demandData; printing = true
     )
 
 # Checking stability

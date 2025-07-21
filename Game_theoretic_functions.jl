@@ -5,7 +5,7 @@ using Combinatorics, HiGHS, JuMP#, Gurobi, NLsolve,
 
 
 function calculate_allocations(
-    allocations, clients, coalitions, coalitionCosts, hourly_imbalances, imbalancesDict,systemData; printing = true, return_time = false
+    allocations, clients, coalitions, coalitionCosts, hourly_imbalances, imbalancesDict,systemData, demandData; printing = true, return_time = false
     )
     allocation_times = Dict{String, Float64}()
     allocation_costs = Dict{String, Any}()
@@ -17,13 +17,14 @@ function calculate_allocations(
         "gately" => () -> deepcopy(gately_point(clients, coalitionCosts)),
         #"gately_daily" => () -> deepcopy(gately_point_daily(clients, hourly_imbalances, systemData)),
         "gately_interval" => () -> deepcopy(gately_point_interval(clients, hourly_imbalances, systemData)),
-        "full_cost" => () -> deepcopy(full_cost_transfer(clients, coalitionCosts, imbalancesDict, systemData)),
-        "reduced_cost" => () -> deepcopy(reduced_cost(clients, hourly_imbalances, systemData)),
+        "full_cost" => () -> deepcopy(full_cost_transfer(clients, imbalancesDict, systemData)),
+        "reduced_cost" => () -> deepcopy(reduced_cost(clients, imbalancesDict, systemData)),
         "nucleolus" => () -> begin
             _, nucleolus_values = nucleolus(clients, coalitionCosts)
             deepcopy(nucleolus_values)
         end,
         "equal_share" => () -> deepcopy(equal_allocation(clients, coalitionCosts)),
+        "flat_rate" => () -> deepcopy(flat_rate_allocation(clients, coalitionCosts, demandData))
     )
     allocation_print_map = Dict(
         "shapley" => "Shapley calculation time:",
@@ -36,7 +37,7 @@ function calculate_allocations(
         "reduced_cost" => "reduced cost calculation time:",
         "nucleolus" => "Nucleolus calculation time:",
         "equal_share" => "Equal share calculation time:",
-        "cost_based" => "Cost based allocation calculation time:"
+        "flat_rate" => "Flat rate calculation time:"
     )
     for allocation in allocations
         if haskey(allocation_map, allocation)
@@ -340,34 +341,34 @@ function gately_point_interval(clients, interval_imbalances, systemData)
     return gately_distribution
 end
 
-function full_cost_transfer(clients, imbalance_costs, imbalanceDict, systemData)
+function full_cost_transfer(clients, imbalanceDict, systemData)
     # Initializing
     grand_coalition = vec(clients)
     imbalanceSpread = systemData["price_prod_demand_df"][!, "ImbalanceSpreadEUR"]
-    dominationDirection = systemData["price_prod_demand_df"][!, "DominatingDirection"]
+    dominantDirection = systemData["price_prod_demand_df"][!, "DominatingDirection"]
     clientCost = Dict(client => 0.0 for client in clients)
 
     for t in 1:length(imbalanceDict[[clients[1]]])
         singletonCosts = 0.0
         helpingImbalances = 0.0 # Imbalances opposite the dominant direction
         # If dominant direction is 0, there is no redistribution because of no costs
-        if dominationDirection[t] == 0
+        if dominantDirection[t] == 0
             continue
         end
         for client in clients
             client_imbalance = imbalanceDict[[client]][t]
-            if client_imbalance * dominationDirection[t] > 0
+            if client_imbalance * dominantDirection[t] > 0
                 # Client has imbalance in the dominant direction
                 clientCost[client] += client_imbalance * imbalanceSpread[t]
                 singletonCosts += client_imbalance * imbalanceSpread[t]
-            elseif client_imbalance * dominationDirection[t] < 0
+            elseif client_imbalance * dominantDirection[t] < 0
                 # Client has imbalance in the non-dominant direction
                 helpingImbalances += abs(client_imbalance)
             end
         end
         # Calculate grand coalition cost for the current time period
         grandCoalitionCost = 0.0
-        if imbalanceDict[grand_coalition][t] * dominationDirection[t] > 0
+        if imbalanceDict[grand_coalition][t] * dominantDirection[t] > 0
             # Grand coalition has imbalance in the dominant direction
             grandCoalitionCost = imbalanceDict[grand_coalition][t] * imbalanceSpread[t]
         end
@@ -377,7 +378,7 @@ function full_cost_transfer(clients, imbalance_costs, imbalanceDict, systemData)
             helpingPrice = (singletonCosts - grandCoalitionCost) / helpingImbalances
             for client in clients
                 client_imbalance = imbalanceDict[[client]][t]
-                if client_imbalance * dominationDirection[t] < 0
+                if client_imbalance * dominantDirection[t] < 0
                     # Client has imbalance in the non-dominant direction
                     clientCost[client] += abs(client_imbalance) * helpingPrice
                 end
@@ -387,37 +388,34 @@ function full_cost_transfer(clients, imbalance_costs, imbalanceDict, systemData)
     return clientCost
 end
 
-function reduced_cost(clients, hourly_imbalances, systemData)
-    upreg_price = systemData["upreg_price"]
-    downreg_price = systemData["downreg_price"]
-    client_cost = Dict{String, Float64}()
-    for client in clients
-        client_cost[client] = 0.0
-    end
-    for t in 1:length(hourly_imbalances[[clients[1]]])
-        net_imbalance = hourly_imbalances[clients][t]
-        positive_imbalance = sum(max(hourly_imbalances[[client]][t], 0) for client in clients)
-        negative_imbalance = sum(-min(hourly_imbalances[[client]][t], 0) for client in clients)
-        if net_imbalance > 0
-            imbalance_price = downreg_price
-            #net_imbalance_cost = net_imbalance * downreg_price
-            cost_per_imbalance = (net_imbalance/positive_imbalance) * imbalance_price
-        else
-            imbalance_price = upreg_price
-            #net_imbalance_cost = abs(net_imbalance) * upreg_price
-            cost_per_imbalance = (abs(net_imbalance)/negative_imbalance) * imbalance_price
+function reduced_cost(clients, imbalancesDict, systemData)
+    # Allocates the reduced cost to cost causers
+    # Cost reducers do not get compensation
+    grand_coalition = vec(clients)
+    imbalanceSpread = systemData["price_prod_demand_df"][!, "ImbalanceSpreadEUR"]
+    dominatingDirection = systemData["price_prod_demand_df"][!, "DominatingDirection"]
+    client_cost = Dict(client => 0.0 for client in clients)
+    
+    for t in 1:length(imbalancesDict[[clients[1]]])
+        # Calculate the total imbalance for the grand coalition
+        grand_coalition_imbalance = imbalancesDict[grand_coalition][t]
+        if dominatingDirection[t] == 0 || grand_coalition_imbalance == 0
+            continue  # Skip if no imbalance or no cost
         end
+        
+        # Calculate the cost for the grand coalition
+        grand_coalition_cost = abs(grand_coalition_imbalance) * imbalanceSpread[t]
+        
+        # Distribute costs to clients based on their imbalances
         for client in clients
-            client_imb = hourly_imbalances[[client]][t]
-            # Check if client harms (same sign as net imbalance and not zero)
-            if client_imb * net_imbalance > 0 && net_imbalance != 0
-                client_cost[client] += abs(client_imb) * cost_per_imbalance
-            else
-                # Helping clients pay 0
-                client_cost[client] += 0.0
+            client_imbalance = imbalancesDict[[client]][t]
+            if client_imbalance * dominatingDirection[t] > 0
+                # Client has an imbalance in the same direction as the grand coalition
+                client_cost[client] += (abs(client_imbalance) / abs(grand_coalition_imbalance)) * grand_coalition_cost
             end
         end
     end
+
     return client_cost
 end
 
@@ -622,5 +620,18 @@ function cost_based_allocation(clients, hourly_imbalances, systemData, alpha)
         allocation[client] = sum(client_imbalances .* indiced_spreads) / n_tail
     end
     
+    return allocation
+end
+
+function flat_rate_allocation(clients, coalitionCosts, demandData)
+    # This function calculates the imbalance cost per MWh and allocates it evenly to all clients
+    # This is roughly equivalent to the system currently in place
+    allocation = Dict{String, Float64}()
+    total_costs = sum(coalitionCosts[[client]] for client in clients)
+    total_demand = sum(sum(demandData[!, client]) for client in clients)
+    flat_rate = total_costs / total_demand
+    for client in clients
+        allocation[client] = flat_rate * sum(demandData[!, client])
+    end
     return allocation
 end

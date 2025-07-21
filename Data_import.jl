@@ -80,7 +80,13 @@ function load_data()
     priceData[!, :HourUTC_datetime] = DateTime.(priceData[:, :TimeUTC], DateFormat("yyyy-mm-dd HH:MM:SS"))
     priceData = select(priceData, [:HourUTC_datetime, :ImbalancePriceEUR, :SpotPriceEUR, :DominatingDirection])
     priceData[!, :ImbalanceSpreadEUR] = priceData[!, :ImbalancePriceEUR] .- priceData[!, :SpotPriceEUR]
+    
+    # Fill missing DominatingDirection values based on ImbalanceSpreadEUR
+    priceData[!, :DominatingDirection] = coalesce.(priceData[!, :DominatingDirection], 
+                                                  sign.(priceData[!, :ImbalanceSpreadEUR]))
+    
     priceData = select(priceData, [:HourUTC_datetime, :ImbalanceSpreadEUR, :DominatingDirection])
+
     # Merge price data with combined data
     combinedData = innerjoin(combinedData, priceData, on=:HourUTC_datetime)
 
