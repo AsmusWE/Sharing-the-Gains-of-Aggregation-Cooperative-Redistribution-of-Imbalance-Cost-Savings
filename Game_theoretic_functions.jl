@@ -399,19 +399,24 @@ function reduced_cost(clients, imbalancesDict, systemData)
     for t in 1:length(imbalancesDict[[clients[1]]])
         # Calculate the total imbalance for the grand coalition
         grand_coalition_imbalance = imbalancesDict[grand_coalition][t]
-        if dominatingDirection[t] == 0 || grand_coalition_imbalance == 0
-            continue  # Skip if no imbalance or no cost
-        end
         
         # Calculate the cost for the grand coalition
-        grand_coalition_cost = abs(grand_coalition_imbalance) * imbalanceSpread[t]
+        grandCoalitionCost = 0.0
+        if grand_coalition_imbalance * dominatingDirection[t] > 0
+            grandCoalitionCost = grand_coalition_imbalance * imbalanceSpread[t]
+        else
+            # If the grand coalition has no imbalance in the dominant direction, skip this time step
+            continue
+        end
+        # Getting the total imbalance in the dominant direction
+        singletonImbalance = sum(imbalancesDict[[client]][t] for client in clients if imbalancesDict[[client]][t] * dominatingDirection[t] > 0)
         
         # Distribute costs to clients based on their imbalances
         for client in clients
             client_imbalance = imbalancesDict[[client]][t]
             if client_imbalance * dominatingDirection[t] > 0
-                # Client has an imbalance in the same direction as the grand coalition
-                client_cost[client] += (abs(client_imbalance) / abs(grand_coalition_imbalance)) * grand_coalition_cost
+                # Client has an imbalance in the dominant direction
+                client_cost[client] += ((client_imbalance) / (singletonImbalance)) * grandCoalitionCost
             end
         end
     end

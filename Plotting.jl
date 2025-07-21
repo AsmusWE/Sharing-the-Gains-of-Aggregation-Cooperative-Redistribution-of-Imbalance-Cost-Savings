@@ -42,7 +42,8 @@ function plot_results(
         "reduced_cost" => ("Reduced Cost", :lightblue),
         "nucleolus" => ("Nucleolus", :green),
         "equal_share" => ("Equal Share", :purple),
-        "cost_based" => ("Cost Based", :cyan)
+        #"cost_based" => ("Cost Based", :cyan),
+        "flat_rate" => ("Flat Rate", :cyan)
     )
 
     # CVaR per MWh

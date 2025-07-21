@@ -82,9 +82,14 @@ function load_data()
     priceData[!, :ImbalanceSpreadEUR] = priceData[!, :ImbalancePriceEUR] .- priceData[!, :SpotPriceEUR]
     
     # Fill missing DominatingDirection values based on ImbalanceSpreadEUR
-    priceData[!, :DominatingDirection] = coalesce.(priceData[!, :DominatingDirection], 
-                                                  sign.(priceData[!, :ImbalanceSpreadEUR]))
+    #priceData[!, :DominatingDirection] = coalesce.(priceData[!, :DominatingDirection], 
+    #                                              sign.(priceData[!, :ImbalanceSpreadEUR]))
+    # Generate new DominatingDirection column based on ImbalanceSpreadEUR
+    # This is done because of errors in the dominatingDirection data
+    priceData[!, :DominatingDirection] = ifelse.(priceData[!, :ImbalanceSpreadEUR] .> 0, 1,
+                                                         ifelse.(priceData[!, :ImbalanceSpreadEUR] .< 0, -1, 0))
     
+
     priceData = select(priceData, [:HourUTC_datetime, :ImbalanceSpreadEUR, :DominatingDirection])
 
     # Merge price data with combined data

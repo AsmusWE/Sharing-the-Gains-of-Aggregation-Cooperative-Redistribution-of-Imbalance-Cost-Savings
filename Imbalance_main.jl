@@ -111,16 +111,16 @@ println("Max instabilities: ", max_instability)
 
 # Compare the sum of individual client CVaR with the grand coalition CVaR
 grand_coalition = clients
-grand_coalition_CVaR = coalitionCVaR[grand_coalition]
+grand_coalition_Cost = coalitionCosts[grand_coalition]
 
-individual_CVaR_sum = sum(coalitionCVaR[[client]] for client in clients)
+individual_Cost_sum = sum(coalitionCosts[[client]] for client in clients)
 VCG_cost = sum(values(allocation_costs["VCG"]))
 
-println("Grand coalition CVaR: ", grand_coalition_CVaR)
-println("Sum of individual client CVaR (THIS IS PROBABLY NOT A USEFUL MEASUREMENT): ", individual_CVaR_sum)
+println("Grand coalition Cost: ", grand_coalition_Cost)
+println("Sum of individual client Cost: ", individual_Cost_sum)
 #println("Difference: ", grand_coalition_imbalance - individual_imbalance_sum)
 println("VCG cost: ", VCG_cost)
-println("VCG subsidies: ", grand_coalition_CVaR - VCG_cost)
+println("VCG subsidies: ", grand_coalition_Cost - VCG_cost)
 
 # Define a struct to hold all relevant plotting data
 struct PlotData
@@ -139,7 +139,7 @@ plot_data = PlotData(
     allocations,
     systemData,
     allocation_costs,
-    coalitionCVaR,
+    coalitionCosts,
     clients,
     start_hour,
     sim_days,
