@@ -79,7 +79,7 @@ function load_data()
     priceData = CSV.read("Data/ImbalancePrice.csv", DataFrame, decimal=',')
     priceData[!, :HourUTC_datetime] = DateTime.(priceData[:, :TimeUTC], DateFormat("yyyy-mm-dd HH:MM:SS"))
     priceData = select(priceData, [:HourUTC_datetime, :ImbalancePriceEUR, :SpotPriceEUR])
-    priceData[!, :ImbalanceSpreadEUR] = priceData[!, :SpotPriceEUR] .- priceData[!, :ImbalancePriceEUR]
+    priceData[!, :ImbalanceSpreadEUR] = priceData[!, :ImbalancePriceEUR] .- priceData[!, :SpotPriceEUR]
     priceData = select(priceData, [:HourUTC_datetime, :ImbalanceSpreadEUR])
     # Merge price data with combined data
     combinedData = innerjoin(combinedData, priceData, on=:HourUTC_datetime)

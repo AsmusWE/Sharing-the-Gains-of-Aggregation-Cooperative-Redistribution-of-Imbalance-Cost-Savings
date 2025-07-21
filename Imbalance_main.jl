@@ -78,8 +78,8 @@ allocations = [
 println("Calculating CVaR for all coalitions...")
 coalitionCVaR, imbalances = @time calculate_CVaR(systemData, clients, start_hour, sim_days; printing=false ,alpha=alpha)
 # NOTE: Only time one of these at a time, otherwise the last call will always be faster
-#println("Timing CVaR for gately")
-#_ = @time CVaR_Gately(systemData, clients, start_hour, sim_days; printing=false, alpha=alpha)
+println("Timing CVaR for gately")
+#_ = @time calculate_CVaR(systemData, clients, start_hour, sim_days; printing=false, alpha=alpha)
 #println("Timing CVaR for VCG")
 #_ = @time CVaR_VCG(systemData, clients, start_hour, sim_days; printing=false, alpha=alpha)
 

@@ -5,8 +5,9 @@ using Combinatorics, HiGHS, JuMP#, Gurobi, NLsolve,
 
 
 function calculate_allocations(
-    allocations, clients, coalitions, coalitionCVaR, hourly_imbalances, systemData, alpha; printing = true
+    allocations, clients, coalitions, coalitionCVaR, hourly_imbalances, systemData, alpha; printing = true, return_time = false
     )
+    allocation_times = Dict{String, Float64}()
     allocation_costs = Dict{String, Any}()
     allocation_map = Dict(
         "shapley" => () -> shapley_value(clients, coalitions, coalitionCVaR),
@@ -43,10 +44,15 @@ function calculate_allocations(
             if printing && haskey(allocation_print_map, allocation)
                 println(allocation_print_map[allocation])
                 allocation_costs[allocation] = @time allocation_map[allocation]()
+            elseif return_time
+                allocation_times[allocation] = @elapsed allocation_map[allocation]()
             else
                 allocation_costs[allocation] = allocation_map[allocation]()
             end
         end
+    end
+    if return_time
+        return allocation_times
     end
     return allocation_costs
     
