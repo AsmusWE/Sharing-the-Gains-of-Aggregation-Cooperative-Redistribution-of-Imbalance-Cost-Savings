@@ -66,8 +66,8 @@ allocations = [
     #"gately_interval",
     "full_cost",
     "reduced_cost",
-    #"nucleolus",
-    "equal_share",
+    "nucleolus",
+    #"equal_share",
     "flat_rate"
 ]
 

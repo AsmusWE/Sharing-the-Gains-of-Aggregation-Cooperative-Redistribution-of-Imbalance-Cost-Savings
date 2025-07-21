@@ -53,8 +53,9 @@ function plot_results(
             cost_MWh[alloc] = scale_distribution!(allocation_costs[alloc], dayData["price_prod_demand_df"], clients)
         end
     end
-    yMax =maximum([maximum(cost_MWh[alloc][k] for k in plotKeys) for alloc in allocations if haskey(cost_MWh, alloc)])
-    p_fees_MWh = plot(title="CVaR per MWh demand", xlabel="Client", ylabel="CVaR/MWh [(€/15min)/MWh]", xticks=(1:length(plotKeys), plotKeys), xrotation=45, ylim = (0, yMax * 1.1))
+    #yMax =maximum([maximum(cost_MWh[alloc][k] for k in plotKeys) for alloc in allocations if haskey(cost_MWh, alloc)])
+    #yMin = minimum([minimum(cost_MWh[alloc][k] for k in plotKeys) for alloc in allocations if haskey(cost_MWh, alloc)])
+    p_fees_MWh = plot(title="Imbalance cost per MWh demand", xlabel="Client", ylabel="€/MWh", xticks=(1:length(plotKeys), plotKeys), xrotation=45) #, ylim = (0, yMax * 1.1)
     for alloc in allocations
         if haskey(cost_MWh, alloc)
             label, color = allocation_labels[alloc]
@@ -73,11 +74,11 @@ function plot_results(
     end
     
     p_cvar_vs_pv = plot(
-        title="CVaR per MWh vs PV Coverage",
+        title="Imbalance cost per MWh vs PV Coverage",
         xlabel="PV Coverage of Demand [%]",
-        ylabel="CVaR/MWh [(€/15min)/MWh]",
+        ylabel="€/MWh",
         legend=:bottomright,
-        ylim = (0, yMax * 1.1),
+        #ylim = (0, yMax * 1.1),
     )
     
     for alloc in allocations
@@ -91,7 +92,7 @@ function plot_results(
     display(p_cvar_vs_pv)
 
     # Total CVaR
-    p_fees_total = plot(title="CVaR contribution per client", xlabel="Client", ylabel="CVaR [€/15min]", xticks=(1:length(plotKeys), plotKeys), xrotation=45)
+    p_fees_total = plot(title="Total imbalance cost per client", xlabel="Client", ylabel="€", xticks=(1:length(plotKeys), plotKeys), xrotation=45)
     for alloc in allocations
         if haskey(allocation_costs, alloc)
             label, color = allocation_labels[alloc]
@@ -117,9 +118,9 @@ function plot_results(
     #min_val = minimum([cost_imbalance[alloc][k] for alloc in allocations if haskey(cost_imbalance, alloc) for k in plotKeys])
     #lower_ylim = min(0.0, min_val - 0.05)  # Add a small margin below min_val, but not above 0
     p_CVaRRatio = plot(
-        title="CVaR contribution vs individual CVaR",
+        title="Imbalance cost contribution vs individual cost",
         xlabel="Client",
-        ylabel="CVaR Contribution / Individual CVaR [%]",
+        ylabel="%",
         xticks=(1:length(plotKeys), plotKeys),
         xrotation=45,
         ylim=(0, 100)
@@ -135,9 +136,9 @@ function plot_results(
 
     # Plot CVaRRatio vs PV Coverage
     p_cvar_ratio_vs_pv = plot(
-        title="CVaR Ratio vs PV Coverage",
+        title="Contribution/individual Ratio vs PV Coverage",
         xlabel="PV Coverage of Demand [%]",
-        ylabel="CVaR Contribution / Individual CVaR [%]",
+        ylabel="%",
         legend=:bottomright,
         ylim = (0, 100)
     )
