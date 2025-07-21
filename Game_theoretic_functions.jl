@@ -380,7 +380,7 @@ function full_cost_transfer(clients, imbalanceDict, systemData)
                 client_imbalance = imbalanceDict[[client]][t]
                 if client_imbalance * dominantDirection[t] < 0
                     # Client has imbalance in the non-dominant direction
-                    clientCost[client] += abs(client_imbalance) * helpingPrice
+                    clientCost[client] += -abs(client_imbalance) * helpingPrice
                 end
             end
         end
