@@ -74,11 +74,16 @@ allocations = [
 # =========================
 # 2. Imbalance Calculation and allocation
 # =========================
+# Calculating costs
+println("Calculating imbalance costs...")
+coalitionCosts, imbalances = @time imbalance_costs(systemData, clients, start_hour, sim_days; printing=false)
+
+
 # Calculating CVaR
-println("Calculating CVaR for all coalitions...")
-coalitionCVaR, imbalances = @time calculate_CVaR(systemData, clients, start_hour, sim_days; printing=false ,alpha=alpha)
+#println("Calculating CVaR for all coalitions...")
+#coalitionCVaR, imbalances = @time calculate_CVaR(systemData, clients, start_hour, sim_days; printing=false ,alpha=alpha)
 # NOTE: Only time one of these at a time, otherwise the last call will always be faster
-println("Timing CVaR for gately")
+#println("Timing CVaR for gately")
 #_ = @time calculate_CVaR(systemData, clients, start_hour, sim_days; printing=false, alpha=alpha)
 #println("Timing CVaR for VCG")
 #_ = @time CVaR_VCG(systemData, clients, start_hour, sim_days; printing=false, alpha=alpha)
@@ -93,9 +98,8 @@ println("Calculating allocations...")
 #daily_cost_MWh_imbalance, allocation_costs, imbalances, hourly_imbalances = @time allocation_variance(allocations, clients, coalitions, systemData, start_hour, sim_days)
 
 allocation_costs = calculate_allocations(
-    allocations, clients, coalitions, coalitionCVaR, imbalances, systemData, alpha; printing = true
+    allocations, clients, coalitions, coalitionCosts, imbalances, systemData, alpha; printing = true
     )
-
 
 # Checking stability
 max_instability = Dict{String, Float64}()

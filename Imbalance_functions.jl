@@ -200,6 +200,34 @@ function calculate_CVaR(systemData, clients, startDay, days; alpha=0.05, printin
     return cvar_dict, imbalance_dict
 end
 
+function imbalance_costs(systemData, clients, startDay, days; printing=false, chunkSize=14)
+    # Validate inputs
+    days > 0 || error("Days must be greater than 0, got $days")
+    
+    # Set up time period
+    intervals_per_day = 96
+    intervals = days * intervals_per_day
+    tempData = create_time_period_data(systemData, startDay, intervals)
+    
+    # Calculate imbalances for all coalitions
+    coalitions, period_interval_imbalance = chunk_imbalance(tempData, clients; printing, chunkSize)
+    
+    # Calculate imbalance costs for each coalition
+    imbalance_spread = tempData["price_prod_demand_df"][!, "ImbalanceSpreadEUR"]
+    dominationDirection = tempData["price_prod_demand_df"][!, "DominatingDirection"]
+    coalition_costs = Dict{Any, Float64}()
+    for (i, coalition) in enumerate(coalitions)
+        # Calculate costs for each coalition considering dominating direction
+        # Multiply imbalance by dominating direction, then set negative values to 0
+        # Ensures that only imbalances in dominating direction pay
+        imbalance_with_direction = period_interval_imbalance[i, :] .* dominationDirection
+        imbalance_costs = max.(imbalance_with_direction, 0) .* abs.(imbalance_spread)
+        coalition_costs[coalition] = sum(imbalance_costs)
+    end
+
+    return coalition_costs, period_interval_imbalance
+end
+
 function create_time_period_data(systemData, startDay, intervals)
     start_interval = findfirst(x -> x >= startDay, systemData["price_prod_demand_df"][!, "HourUTC_datetime"])
     tempData = deepcopy(systemData)
