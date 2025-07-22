@@ -27,31 +27,36 @@ coalitions = collect(combinations(clients))
 
 # First hour 2024-03-04T12:00:00
 # Last hour 2025-04-26T03:45:00
-#start_hour = DateTime(2025, 4, 19, 0, 0, 0)
-start_hour = DateTime(2025, 3, 6, 12, 0, 0)
+start_hour = DateTime(2025, 4, 19, 0, 0, 0)
+#start_hour = DateTime(2025, 3, 04, 12, 0, 0)
 #start_hour = start_hour + Dates.Day(3) # Start at 00:00 of the next day
 #sim_days = 50
-sim_days = 10
-num_scenarios = 5
-
+sim_days = 1
+num_scenarios_demand = 5
+num_scenarios_price = 30 # Number of scenarios for imbalance spread
+time_horizon = 1 * 96 # Sets the chunk size for the simulation and the length of the imbalance spread scenarios
 alpha = 0.05 # CVaR alpha level
 
+stochasticData = Dict(
+    # Accepted forecast types: "perfect", "scenarios", "noise"
+    "pv_forecast" => "scenarios",
+    "demand_forecast" => "scenarios",
+    # Set standard deviations for noise
+    # Adjusting so demand MAE is 7-10% and PV MAE is 22.5-25%
+    # Note: PV forecast gives MAE of 22.5-25% using scenarios
+    "demand_noise_std" => 0.17,
+    "pv_noise_std" => 0.32
+)
 
-# Accepted forecast types: "perfect", "scenarios", "noise"
-systemData["demand_forecast"] = "scenarios"
-systemData["pv_forecast"] = "scenarios"
-# Set standard deviations for noise
-# Adjusting so demand MAE is 7-10% and PV MAE is 22.5-25%
-# Note: PV forecast gives MAE of 22.5-25% using scenarios
-systemData["demand_noise_std"] = 0.17
-systemData["pv_noise_std"] = 0.32
+if stochasticData["demand_forecast"] == "scenarios"
+    stochasticData["demand_scenarios"] = generate_scenarios_demand_rolling(clients, demandData, start_hour, sim_days; num_scenarios=num_scenarios_demand)
+end
 
-if systemData["demand_forecast"] == "scenarios"
-    systemData["demand_scenarios"] = generate_scenarios_demand_rolling(clients, demandData, start_hour, sim_days; num_scenarios=num_scenarios)
+if stochasticData["pv_forecast"] == "noise"
+    stochasticData["pv_forecast_noise"] = generate_noise_forecast_PV(systemData, start_hour, sim_days)
 end
-if systemData["pv_forecast"] == "noise"
-    systemData["pv_forecast_noise"] = generate_noise_forecast_PV(clients, systemData, start_hour, sim_days)
-end
+stochasticData["imbalance_spread"] = generate_scenarios_imbalance_spread(systemData, start_hour, time_horizon; num_scenarios=num_scenarios_price)
+stochasticData["dominantDirection01"] = generate_dominant_direction(stochasticData["imbalance_spread"])
 
 # Cut systemData and demandData to the simulation period
 systemData = set_period!(systemData, start_hour, sim_days)
@@ -66,7 +71,7 @@ allocations = [
     "gately_interval",
     "full_cost",
     "reduced_cost",
-    "nucleolus",
+    #"nucleolus",
     #"equal_share",
     "flat_rate"
 ]
@@ -76,7 +81,7 @@ allocations = [
 # =========================
 # Calculating costs
 println("Calculating imbalance costs...")
-coalitionCosts, imbalances, imbalancesDict = @time imbalance_costs(systemData, clients, start_hour, sim_days; printing=false)
+coalitionCosts, imbalances, imbalancesDict = @time imbalance_costs(systemData, clients, start_hour, sim_days, stochasticData; printing=false, chunkSize=time_horizon)
 
 
 # Calculating CVaR

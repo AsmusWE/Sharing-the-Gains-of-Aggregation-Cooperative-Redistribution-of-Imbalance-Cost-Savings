@@ -69,11 +69,46 @@ function generate_scenarios_demand_rolling(clients, demandDF, start_hour, sim_da
     return scenarios_dict
 end
 
-function generate_noise_forecast_PV(clients, systemData, start_hour, sim_days)
+function generate_noise_forecast_PV(systemData, start_hour, sim_days)
     standard_deviation = systemData["pv_noise_std"]
     # Get the number of time steps in the forecast
     tempData = set_period!(systemData, start_hour, sim_days)
     data_length = size(tempData["price_prod_demand_df"], 1)
     pvForecast = tempData["price_prod_demand_df"][:, :SolarMWh] .* (1 .+ standard_deviation * randn(data_length, 1))
     return pvForecast
+end
+
+function generate_scenarios_imbalance_spread(systemData, start_hour, scenario_length; num_scenarios = 100)
+    imbalance_spread = systemData["price_prod_demand_df"][:, :ImbalanceSpreadEUR]
+    scenarios = zeros(num_scenarios, scenario_length)
+
+    # Only keep data from before the start_hour
+    start_idx = findfirst(systemData["price_prod_demand_df"][:, :HourUTC_datetime] .> start_hour)
+    if start_idx === nothing
+        error("No value after start_hour $start_hour found in price_prod_demand_df[:HourUTC_datetime]")
+    end
+    data_length = start_idx - 1  # Length of the data before the start_hour
+    imbalance_spread = imbalance_spread[1:data_length]
+
+    # Check if we have enough data to generate scenarios of the required length
+    if data_length < scenario_length* num_scenarios
+        error("Not enough historical data ($(data_length) points) to generate $(num_scenarios) scenarios of length $(scenario_length)")
+    end
+
+    # Generate scenarios by randomly selecting consecutive sequences from the historical data
+    for i in 1:num_scenarios
+        # Randomly select a starting index ensuring we have enough data for the full scenario length
+        max_start_idx = data_length - scenario_length + 1
+        start_idx = rand(1:max_start_idx)
+        scenarios[i, :] = imbalance_spread[start_idx:start_idx + scenario_length - 1]
+    end
+
+    return scenarios
+end
+
+function generate_dominant_direction(spreadScenarios)
+    # Generate a DominatingDirection column based on ImbalanceSpreadEUR
+    # 1 for positive price spread, 0 for negative price spread
+    # Should be tied to spreadScenarios, pre-generated to speed up optimization
+    return ifelse.(spreadScenarios .> 0, 1, 0)
 end

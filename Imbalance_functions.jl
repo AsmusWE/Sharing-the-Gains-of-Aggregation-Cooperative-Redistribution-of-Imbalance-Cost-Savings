@@ -7,14 +7,14 @@ using Combinatorics
 using Dates
 using Statistics
 
-function get_demand_forecast(coalition, systemData, TimeHorizon)
-    forecast_type = systemData["demand_forecast"]
+function get_demand_forecast(coalition, stochasticData, systemData, TimeHorizon)
+    forecast_type = stochasticData["demand_forecast"]
     if forecast_type == "perfect"
         return sum(systemData["price_prod_demand_df"][1:TimeHorizon, client] for client in coalition)
     elseif forecast_type == "scenarios"
-        return sum(systemData["demand_scenarios"][client] for client in coalition)
+        return sum(stochasticData["demand_scenarios"][client] for client in coalition)
     elseif forecast_type == "noise"
-        std_dev = systemData["demand_noise_std"]
+        std_dev = stochasticData["demand_noise_std"]
         actual_demand = sum(systemData["price_prod_demand_df"][1:TimeHorizon, client] for client in coalition)
         return actual_demand .* (1 .+ std_dev * randn(TimeHorizon, 1))
     else
@@ -22,30 +22,36 @@ function get_demand_forecast(coalition, systemData, TimeHorizon)
     end
 end
 
-function get_pv_forecast(systemData, T)
-    forecast_type = systemData["pv_forecast"]
+function get_pv_forecast(stochasticData, systemData, T)
+    forecast_type = stochasticData["pv_forecast"]
     if forecast_type == "perfect"
         return systemData["price_prod_demand_df"][1:T, :SolarMWh]
     elseif forecast_type == "scenarios"
         return systemData["price_prod_demand_df"][1:T, :PVForecast]
     elseif forecast_type == "noise"
-        return systemData["pv_forecast_noise"][1:T]
+        return stochasticData["pv_forecast_noise"][1:T]
     else
         error("Unknown PV forecast type: $forecast_type")
     end
 end
 
-function optimize_imbalance(coalition, systemData)
+function optimize_imbalance(coalition, systemData, stochasticData)
     clientPVOwnership = getindex.(Ref(systemData["clientPVOwnership"]), coalition)
     TimeHorizon = length(systemData["price_prod_demand_df"][!, "HourUTC_datetime"])
     T = min(TimeHorizon, size(systemData["price_prod_demand_df"])[1])
     
-    demand = get_demand_forecast(coalition, systemData, TimeHorizon)
-    pvProduction = get_pv_forecast(systemData, T)
+    demand = get_demand_forecast(coalition, stochasticData, systemData, TimeHorizon)
+    pvProduction = get_pv_forecast(stochasticData, systemData, T)
+    spreadScenarios = stochasticData["imbalance_spread"]
+    # Dominant direction is 0 or 1 here. 0 corresponds to -1 (need for upregulation) in the original dataset. 1 corresponds to +1 (need for downregulation)
+    # Needs to be tied to spreadScenarios, pre-generated to speed up optimization
+    dominantDirection = stochasticData["dominantDirection01"]
     prod = pvProduction .* sum(clientPVOwnership)
     
-    S = length(demand[1,:])  # Number of scenarios
-    prob = 1/S
+    SDemand = length(demand[1,:])  # Number of demand scenarios
+    probDemand = 1/SDemand
+    SSpread = length(spreadScenarios[1,:])  # Number of spread scenarios
+    probSpread = 1/SSpread
 
     # Set up optimization model
     model = Model(HiGHS.Optimizer)
@@ -53,21 +59,25 @@ function optimize_imbalance(coalition, systemData)
     #set_optimizer_attribute(model, "OutputFlag", 0)
     set_silent(model)
 
-    @variable(model, imbal[1:T, 1:S]) # Imbalance amount
-    @variable(model, pos_imbal[1:T, 1:S] >= 0) # Positive imbalance
-    @variable(model, neg_imbal[1:T, 1:S] >= 0) # Negative imbalance
+    @variable(model, imbal[1:T, 1:SDemand]) # Imbalance amount
+    @variable(model, pos_imbal[1:T, 1:SDemand] >= 0) # Positive imbalance
+    @variable(model, neg_imbal[1:T, 1:SDemand] >= 0) # Negative imbalance
     @variable(model, bid[1:T]) # Bid amount
 
-    # Imbalance should be as close to zero as possible
-    @objective(model, Min, prob * sum((pos_imbal[t, s] + neg_imbal[t, s]) for t in 1:T for s in 1:S)) # Objective function
+    # Two-price objective
+    @objective(model, Min, probSpread * probDemand * sum(((dominantDirection[sSpread])*pos_imbal[t, s]*(spreadScenarios[sSpread]) + (1-dominantDirection[sSpread])*neg_imbal[t, s]*(-spreadScenarios[sSpread])) for t in 1:T for s in 1:SDemand for sSpread in 1:SSpread)) # Objective function
+    #@objective(model, Min, probDemand * sum((pos_imbal[t, s] + neg_imbal[t, s]) for t in 1:T for s in 1:SDemand))
 
-    @constraint(model, [t = 1:T, s = 1:S],
+    @constraint(model, [t = 1:T, s = 1:SDemand],
                 imbal[t, s] == demand[t, s] - prod[t] - bid[t])
-    @constraint(model, [t = 1:T, s = 1:S], pos_imbal[t, s] - neg_imbal[t, s] == imbal[t, s])
+    @constraint(model, [t = 1:T, s = 1:SDemand], pos_imbal[t, s] - neg_imbal[t, s] == imbal[t, s])
     solution = optimize!(model)
     if termination_status(model) == MOI.OPTIMAL
         #println("Optimal solution found")
         #println("Objective value: ", objective_value(model))
+        #println("pos_imbal: ", value.(pos_imbal))
+        #println("neg_imbal: ", value.(neg_imbal))
+        #print(a)
         return value.(bid)
     else
         println("No optimal solution found")
@@ -80,10 +90,10 @@ function get_imbalance(bids, pvProd, demand)
     return bids[1:min_length] + pvProd[1:min_length] - demand[1:min_length]
 end
 
-function calculate_imbalance(systemData, clients)
+function calculate_imbalance(systemData, clients, stochasticData)
     coalitions = collect(combinations(clients))
     n_coalitions = length(coalitions)
-    bids_dict = calculate_bids(coalitions, systemData)
+    bids_dict = calculate_bids(coalitions, systemData, stochasticData)
     
     # Pre-allocate arrays for better performance
     demand_sum_vec = Vector{Vector{Float64}}(undef, n_coalitions)
@@ -96,14 +106,14 @@ function calculate_imbalance(systemData, clients)
     return coalitions, demand_sum_vec, scaled_pvProd_vec, bids_dict
 end
 
-function calculate_bids(coalitions, systemData)
+function calculate_bids(coalitions, systemData, stochasticData)
     # This function calculates the bids for each coalition combination
     bids = Dict()
     
     # Calculate bids for individual clients first
     individual_clients = filter(c -> length(c) == 1, coalitions)
     for client in individual_clients
-        bids[client] = optimize_imbalance(client, systemData)
+        bids[client] = optimize_imbalance(client, systemData, stochasticData)
     end
     
     # Calculate bids for coalitions by summing individual bids
@@ -116,12 +126,11 @@ function calculate_bids(coalitions, systemData)
     return bids
 end
 
-function chunk_imbalance(systemData, clients; printing=false, chunkSize = 14)
+function chunk_imbalance(systemData, clients, stochasticData; printing=false, chunkSize = 14)
     # chunkSize is in days
     # Calculate the starting interval index
     coalitions = collect(combinations(clients))
     n_coalitions = length(coalitions)
-    
     # Constants
     INTERVALS_PER_DAY = 96  # 15-min intervals per day
     intervals_per_chunk = chunkSize * INTERVALS_PER_DAY
@@ -139,11 +148,11 @@ function chunk_imbalance(systemData, clients; printing=false, chunkSize = 14)
         chunk_length = min(intervals_per_chunk, total_intervals - start_idx + 1)
         
         # Prepare chunk data
-        chunk_data = prepare_chunk_data(systemData, start_idx, chunk_length, INTERVALS_PER_DAY)
-        
+        chunk_data, chunk_stochasticData = prepare_chunk_data(systemData, stochasticData, start_idx, chunk_length, INTERVALS_PER_DAY)
+
         # Calculate imbalances for this chunk
-        coalitions, demand_vec, pv_vec, bids_dict = calculate_imbalance(chunk_data, clients)
-        
+        coalitions, demand_vec, pv_vec, bids_dict = calculate_imbalance(chunk_data, clients, chunk_stochasticData)
+
         # Store results
         end_idx = start_idx + chunk_length - 1
         for (i, coalition) in enumerate(coalitions)
@@ -157,27 +166,28 @@ function chunk_imbalance(systemData, clients; printing=false, chunkSize = 14)
     return coalitions, period_interval_imbalance
 end
 
-function prepare_chunk_data(systemData, start_idx, chunk_length, intervals_per_day)
+function prepare_chunk_data(systemData, stochasticData, start_idx, chunk_length, intervals_per_day)
     chunk_start_day = systemData["price_prod_demand_df"][start_idx, "HourUTC_datetime"]
     chunk_days = div(chunk_length, intervals_per_day)
     chunk_data = set_period!(systemData, chunk_start_day, chunk_days)
-    
+    chunk_stochasticData = deepcopy(stochasticData)
+
     # Adjust scenario data if present
-    if haskey(systemData, "demand_scenarios")
-        chunk_data["demand_scenarios"] = Dict()
-        for (client, scenarios) in systemData["demand_scenarios"]
+    if haskey(stochasticData, "demand_scenarios")
+        chunk_stochasticData["demand_scenarios"] = Dict()
+        for (client, scenarios) in stochasticData["demand_scenarios"]
             end_idx = start_idx + chunk_length - 1
-            chunk_data["demand_scenarios"][client] = scenarios[start_idx:end_idx, :]
+            chunk_stochasticData["demand_scenarios"][client] = scenarios[start_idx:end_idx, :]
         end
     end
     
     # Adjust PV forecast noise if present
-    if haskey(systemData, "pv_forecast_noise")
+    if haskey(stochasticData, "pv_forecast_noise")
         end_idx = start_idx + chunk_length - 1
-        chunk_data["pv_forecast_noise"] = systemData["pv_forecast_noise"][start_idx:end_idx]
+        chunk_stochasticData["pv_forecast_noise"] = stochasticData["pv_forecast_noise"][start_idx:end_idx]
     end
-    
-    return chunk_data
+
+    return chunk_data, chunk_stochasticData
 end
 
 
@@ -191,7 +201,7 @@ function calculate_CVaR(systemData, clients, startDay, days; alpha=0.05, printin
     tempData = create_time_period_data(systemData, startDay, intervals)
     
     # Calculate imbalances for all coalitions
-    coalitions, period_interval_imbalance = chunk_imbalance(tempData, clients; printing, chunkSize)
+    coalitions, period_interval_imbalance = chunk_imbalance(tempData, clients; printing=printing, chunksize=chunkSize)
     
     # Calculate CVaR for each coalition
     imbalance_spread = tempData["price_prod_demand_df"][!, "ImbalanceSpreadEUR"]
@@ -200,7 +210,7 @@ function calculate_CVaR(systemData, clients, startDay, days; alpha=0.05, printin
     return cvar_dict, imbalance_dict
 end
 
-function imbalance_costs(systemData, clients, startDay, days; printing=false, chunkSize=14)
+function imbalance_costs(systemData, clients, startDay, days, stochasticData; printing=false, chunkSize=14)
     # Validate inputs
     days > 0 || error("Days must be greater than 0, got $days")
     
@@ -210,7 +220,7 @@ function imbalance_costs(systemData, clients, startDay, days; printing=false, ch
     tempData = create_time_period_data(systemData, startDay, intervals)
     
     # Calculate imbalances for all coalitions
-    coalitions, period_interval_imbalance = chunk_imbalance(tempData, clients; printing, chunkSize)
+    coalitions, period_interval_imbalance = chunk_imbalance(tempData, clients, stochasticData; printing, chunkSize)
     
     # Calculate imbalance costs for each coalition
     imbalance_spread = tempData["price_prod_demand_df"][!, "ImbalanceSpreadEUR"]
