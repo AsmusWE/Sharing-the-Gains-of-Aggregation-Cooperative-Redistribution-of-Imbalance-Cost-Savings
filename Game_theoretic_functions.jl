@@ -5,17 +5,17 @@ using Combinatorics, HiGHS, JuMP#, Gurobi, NLsolve,
 
 
 function calculate_allocations(
-    allocations, clients, coalitions, coalitionCosts, hourly_imbalances, imbalancesDict,systemData, demandData; printing = true, return_time = false
+    allocations, clients, coalitions, coalitionCosts, intervalImbalances, imbalancesDict,systemData, demandData; printing = true, return_time = false
     )
     allocation_times = Dict{String, Float64}()
     allocation_costs = Dict{String, Any}()
     allocation_map = Dict(
         "shapley" => () -> shapley_value(clients, coalitions, coalitionCosts),
-        #"VCG" => () -> VCG_tax(clients, coalitionCVaR, hourly_imbalances, systemData; budget_balance=false),
+        #"VCG" => () -> VCG_tax(clients, coalitionCVaR, intervalImbalances, systemData; budget_balance=false),
         "VCG" => () -> simple_VCG(clients, coalitionCosts),
         "VCG_budget_balanced" => () -> VCG_BB(clients, coalitionCosts),
         "gately" => () -> deepcopy(gately_point(clients, coalitionCosts)),
-        #"gately_daily" => () -> deepcopy(gately_point_daily(clients, hourly_imbalances, systemData)),
+        #"gately_daily" => () -> deepcopy(gately_point_daily(clients, intervalImbalances, systemData)),
         "gately_interval" => () -> deepcopy(gately_point_interval(clients, imbalancesDict, systemData)),
         "full_cost" => () -> deepcopy(full_cost_transfer(clients, imbalancesDict, systemData)),
         "reduced_cost" => () -> deepcopy(reduced_cost(clients, imbalancesDict, systemData)),
@@ -61,14 +61,17 @@ end
 function allocation_variance(
     allocations::Vector{String}, 
     clients::Vector{String}, 
-    coalitions::Vector{Vector{String}}, 
     systemData, 
+    stochasticData,
     start_hour, 
     sim_days::Int
 )
     # This function calculates the allocations for each day and returns the costs, imbalances, and interval (15-min) imbalances
 
     intervals_per_day = 96 # 15-min intervals per day
+    # Generate coalitions from clients
+    coalitions = collect(combinations(clients))
+    
     # Initialize data structures
     allocation_costs_daily_scaled = Dict{Tuple{String, String, Int}, Float64}()
     allocation_costs = Dict(allocation => Dict(client => 0.0 for client in clients) for allocation in allocations)
@@ -78,25 +81,42 @@ function allocation_variance(
     for day in 1:sim_days
         curr_interval = start_hour + Dates.Minute((day - 1) * intervals_per_day * 15)
         println("Calculating allocations for day $day")
-        imbalances_day, interval_imbalances_day = period_imbalance(systemData, clients, curr_interval, 1; threads = false, printing = false)
+        
+        # Calculate imbalance costs for single day using imbalance_costs function
+        coalitionCosts_day, _, imbalancesDict_day = imbalance_costs(systemData, clients, curr_interval, 1, stochasticData; printing=false, chunkSize=1)
+        
+        # Create demandData for this day (needed for calculate_allocations)
+        tempData = create_time_period_data(systemData, curr_interval, intervals_per_day)
+        demandData = tempData["price_prod_demand_df"]
+        
         daily_allocations = calculate_allocations(
-            allocations, clients, coalitions, imbalances_day, interval_imbalances_day, systemData, 0.05; printing = false
+            allocations, clients, coalitions, coalitionCosts_day, imbalancesDict_day, imbalancesDict_day, systemData, demandData; printing = false
         )
+        
         # Extracting allocations and adding them to total client allocation
         for allocation in allocations
             alloc = daily_allocations[allocation]
             for client in clients
                 allocation_costs[allocation][client] += alloc[client]
-                # Scale allocations to cost per MWh imbalance
-                allocation_costs_daily_scaled[(client, allocation, day)] = alloc[client] / imbalances_day[[client]]
+                # Scale allocations to cost per MWh imbalance - avoid division by zero
+                if coalitionCosts_day[[client]] != 0.0
+                    allocation_costs_daily_scaled[(client, allocation, day)] = alloc[client] / coalitionCosts_day[[client]]
+                else
+                    allocation_costs_daily_scaled[(client, allocation, day)] = 0.0
+                end
             end
         end
+        
         # Accumulate imbalances and interval imbalances
-        for (coalition, imbalance) in imbalances_day
-            imbalances[coalition] += imbalance
+        for (coalition, imbalance) in coalitionCosts_day
+            if haskey(imbalances, coalition)
+                imbalances[coalition] += imbalance
+            end
         end
         for client in clients
-            append!(interval_imbalances[client], interval_imbalances_day[[client]])
+            if haskey(imbalancesDict_day, [client])
+                append!(interval_imbalances[client], imbalancesDict_day[[client]])
+            end
         end
     end
 
@@ -196,13 +216,13 @@ function VCG_BB(clients, coalitionCosts)
     return optimized_payments
 end
 
-function VCG_tax(clients, imbalance_costs, hourly_imbalances, systemData; budget_balance=false)
+function VCG_tax(clients, imbalance_costs, intervalImbalances, systemData; budget_balance=false)
     # This function calculates the VCG value for each client in the grand coalition
     # Handles both budget balanced and non-budget balanced cases
     # Done by calculating taxes and value for each client, and then summing them up
-    T = length(hourly_imbalances[[clients[1]]])
+    T = length(intervalImbalances[[clients[1]]])
     grand_coalition = vec(clients)
-    payments = calculate_payments(clients, hourly_imbalances, systemData["upreg_price"], systemData["downreg_price"])
+    payments = calculate_payments(clients, intervalImbalances, systemData["upreg_price"], systemData["downreg_price"])
     VCG_taxes = Dict{Vector{String}, Float64}()
 
     # If budget balance is required, subsidies are adjusted to ensure the total taxes equal zero
@@ -213,7 +233,7 @@ function VCG_tax(clients, imbalance_costs, hourly_imbalances, systemData; budget
             for i in clients
                 coalition_wo_i = filter(x -> x != i, grand_coalition)
                 gc_val_minus_i = sum(payments[client][t] for client in grand_coalition if client != i)
-                coalition_value_wo_i = sum(hourly_imbalances[coalition_wo_i][t])
+                coalition_value_wo_i = sum(intervalImbalances[coalition_wo_i][t])
                 price = systemData["downreg_price"]
                 if coalition_value_wo_i < 0
                     price = systemData["upreg_price"]
@@ -250,10 +270,10 @@ function VCG_tax(clients, imbalance_costs, hourly_imbalances, systemData; budget
     return utilities
 end
 
-function calculate_payments(clients, hourly_imbalances, upreg_price, downreg_price)
+function calculate_payments(clients, intervalImbalances, upreg_price, downreg_price)
     # This function calculates the payments for each client in the grand coalition
     # Used for VCG calculation
-    T = length(hourly_imbalances[[clients[1]]])
+    T = length(intervalImbalances[[clients[1]]])
 
     # Only calculate payments for the grand coalition
     coalition = clients
@@ -261,10 +281,10 @@ function calculate_payments(clients, hourly_imbalances, upreg_price, downreg_pri
     for m in coalition
         member_payments[m] = zeros(Float64, T)
         for t in 1:T
-            total_pos = sum(max(hourly_imbalances[[i]][t], 0) for i in coalition)
-            total_neg = sum(-min(hourly_imbalances[[i]][t], 0) for i in coalition)
-            member_imb = hourly_imbalances[[m]][t]
-            hour_cost = abs(sum(hourly_imbalances[[i]][t] for i in coalition))
+            total_pos = sum(max(intervalImbalances[[i]][t], 0) for i in coalition)
+            total_neg = sum(-min(intervalImbalances[[i]][t], 0) for i in coalition)
+            member_imb = intervalImbalances[[m]][t]
+            hour_cost = abs(sum(intervalImbalances[[i]][t] for i in coalition))
             if member_imb > 0 && total_pos > total_neg
                 hour_cost = hour_cost * downreg_price
                 member_payments[m][t] = hour_cost * (member_imb / total_pos)
@@ -611,14 +631,14 @@ function equal_allocation(clients, imbalances)
     return equal_allocation
 end
 
-function cost_based_allocation(clients, hourly_imbalances, systemData, alpha)
+function cost_based_allocation(clients, intervalImbalances, systemData, alpha)
     # This function calculates the cost-based allocation for each client in the grand coalition
     # Allocation is based on the cost clients add in the imbalance tail
     allocation = Dict{String, Float64}()
     
-    # Get pricing data - ensure it matches the period of hourly_imbalances
+    # Get pricing data - ensure it matches the period of intervalImbalances
     full_imbalance_spread = systemData["price_prod_demand_df"][!, "ImbalanceSpreadEUR"]
-    grand_coalition_imbalances = hourly_imbalances[clients]
+    grand_coalition_imbalances = intervalImbalances[clients]
     T = length(grand_coalition_imbalances)
     
     # If systemData has been trimmed to match the analysis period, use it directly
@@ -649,7 +669,7 @@ function cost_based_allocation(clients, hourly_imbalances, systemData, alpha)
     indiced_spreads = view(imbalance_spread, cost_indices)
     # Calculate average cost contribution for each client 
     for client in clients
-        client_imbalances = view(hourly_imbalances[[client]], cost_indices)
+        client_imbalances = view(intervalImbalances[[client]], cost_indices)
         allocation[client] = sum(client_imbalances .* indiced_spreads) / n_tail
     end
     

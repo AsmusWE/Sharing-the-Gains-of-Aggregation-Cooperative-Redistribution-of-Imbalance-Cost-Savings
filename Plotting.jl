@@ -55,7 +55,14 @@ function plot_results(
     end
     #yMax =maximum([maximum(cost_MWh[alloc][k] for k in plotKeys) for alloc in allocations if haskey(cost_MWh, alloc)])
     #yMin = minimum([minimum(cost_MWh[alloc][k] for k in plotKeys) for alloc in allocations if haskey(cost_MWh, alloc)])
-    p_fees_MWh = plot(title="Imbalance cost per MWh demand", xlabel="Client", ylabel="€/MWh", xticks=(1:length(plotKeys), plotKeys), xrotation=45) #, ylim = (0, yMax * 1.1)
+    p_fees_MWh = plot(
+        title="Imbalance cost per MWh demand",
+        xlabel="Client",
+        ylabel="€/MWh",
+        xticks=(1:length(plotKeys), plotKeys),
+        xrotation=45,
+        legend=:outerbottom
+    ) #, ylim = (0, yMax * 1.1)
     for alloc in allocations
         if haskey(cost_MWh, alloc)
             label, color = allocation_labels[alloc]
@@ -77,7 +84,7 @@ function plot_results(
         title="Imbalance cost per MWh vs PV Coverage",
         xlabel="PV Coverage of Demand [%]",
         ylabel="€/MWh",
-        legend=:bottomright,
+        legend=:outerbottom,
         #ylim = (0, yMax * 1.1),
     )
     
@@ -92,7 +99,7 @@ function plot_results(
     display(p_cvar_vs_pv)
 
     # Total CVaR
-    p_fees_total = plot(title="Total imbalance cost per client", xlabel="Client", ylabel="€", xticks=(1:length(plotKeys), plotKeys), xrotation=45)
+    p_fees_total = plot(title="Total imbalance cost per client", xlabel="Client", ylabel="€", xticks=(1:length(plotKeys), plotKeys), xrotation=45, legend=:outerbottom)
     for alloc in allocations
         if haskey(allocation_costs, alloc)
             label, color = allocation_labels[alloc]
@@ -123,7 +130,8 @@ function plot_results(
         ylabel="%",
         xticks=(1:length(plotKeys), plotKeys),
         xrotation=45,
-        ylim=(0, 100)
+        ylim=(0, 100),
+        legend=:outerbottom
     )
     for alloc in allocations
         if haskey(CVaRRatio, alloc)
@@ -139,7 +147,7 @@ function plot_results(
         title="Contribution/individual Ratio vs PV Coverage",
         xlabel="PV Coverage of Demand [%]",
         ylabel="%",
-        legend=:bottomright,
+        legend=:outerbottom,
         ylim = (0, 100)
     )
     
@@ -171,7 +179,7 @@ function plot_results(
 
     # Plot total MWh demand per client
     total_MWh_demand = Dict(client => sum(dayData["price_prod_demand_df"][!, Symbol(client)]) for client in plotKeys)
-    p_total_demand = plot(title="Total MWh Demand per Client", xlabel="Client", ylabel="Total MWh Demand", xticks=(1:length(plotKeys), plotKeys), xrotation=45)
+    p_total_demand = plot(title="Total MWh Demand per Client", xlabel="Client", ylabel="Total MWh Demand", xticks=(1:length(plotKeys), plotKeys), xrotation=45, legend=:outerbottom)
     plotVals_total_demand = [total_MWh_demand[k] for k in plotKeys]
     bar!(p_total_demand, 1:length(plotKeys), plotVals_total_demand, label="Total MWh Demand")
     display(p_total_demand)
@@ -241,7 +249,7 @@ function save_variance_data(
     for alloc in allocations
         for client in clients
             for day in 1:sim_days
-                value = daily_cost_MWh_imbalance[client, alloc, day]
+                value = daily_cost_MWh_imbalance[(client, alloc, day)]
                 mean_val_weighted = allocation_costs[alloc][client] / imbalances[[client]]
                 push!(rows, (
                     Scenario = scenario_name,
@@ -267,40 +275,42 @@ function plot_variance(
     sim_days;
     outliers = true
 )
+    # Prepare color and label mapping for allocations
     allocation_labels = Dict(
         "shapley" => ("Shapley", :red),
         "VCG" => ("VCG", :yellow),
         "VCG_budget_balanced" => ("VCG Budget Balanced", :orange),
-        "gately_daily" => ("Gately Daily", :grey),
+        "gately" => ("Gately Point", :grey),
         #"gately_daily" => ("Gately Daily", :black),
         "gately_interval" => ("Gately 15Min interval", :lightgrey),
         "full_cost" => ("Full Cost", :pink),
         "reduced_cost" => ("Reduced Cost", :lightblue),
         "nucleolus" => ("Nucleolus", :green),
-        "equal_share" => ("Equal Share", :purple)
+        "equal_share" => ("Equal Share", :purple),
+        #"cost_based" => ("Cost Based", :cyan),
+        "flat_rate" => ("Flat Rate", :cyan)
     )
 
     p_variance = plot(
-        title = "Imbalance compared to no cooperation, client $plot_client",
-        xlabel = "Allocation",
-        ylabel = "Imbalance compared to no cooperation",
-        xticks = (1:length(allocations), [allocation_labels[a][1] for a in allocations]),
-        legend = false,
-        #legend=:outertopright,
-        xrotation = 45
+        title="Imbalance compared to no cooperation, client $plot_client",
+        xlabel="Allocation",
+        ylabel="Imbalance compared to no cooperation",
+        xticks=(1:length(allocations), [allocation_labels[a][1] for a in allocations]),
+        legend = :none,
+        xrotation=45
     )
-    # Cost per MWh imbalance
-    cost_imbalance = Dict{String, Dict{String, Float64}}()
-
+    
     for (i, alloc) in enumerate(allocations)
-        label, color = allocation_labels[alloc]
-        plotVals = [daily_cost_MWh_imbalance[plot_client, alloc, day] for day in 1:sim_days]
-        boxplot!(fill(i, sim_days), plotVals; color=color, markerstrokecolor=:black, label=label, outliers=outliers)
-        mean_val_unweighted = sum(plotVals) / length(plotVals)
-        mean_val_weighted = allocation_costs[alloc][plot_client]/imbalances[[plot_client]]
-        #annotate!(i, mean_val_unweighted, text(string(round(mean_val_unweighted, digits=4)), :black, :center, 8))
-        # Add a red line for the weighted mean
-        plot!([i-0.4, i+0.4], [mean_val_weighted, mean_val_weighted], color=:blue, linewidth=2, label=false)
+        if haskey(allocation_labels, alloc)
+            label, color = allocation_labels[alloc]
+            plotVals = [daily_cost_MWh_imbalance[(plot_client, alloc, day)] for day in 1:sim_days]
+            boxplot!(fill(i, sim_days), plotVals; color=color, markerstrokecolor=:black, label=label, outliers=outliers)
+            mean_val_unweighted = sum(plotVals) / length(plotVals)
+            mean_val_weighted = allocation_costs[alloc][plot_client]/imbalances[[plot_client]]
+            #annotate!(i, mean_val_unweighted, text(string(round(mean_val_unweighted, digits=4)), :black, :center, 8))
+            # Add a red line for the weighted mean
+            plot!([i-0.4, i+0.4], [mean_val_weighted, mean_val_weighted], color=:blue, linewidth=2, label=false)
+        end
     end
     display(p_variance)
 end

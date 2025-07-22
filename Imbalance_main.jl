@@ -21,17 +21,17 @@ Random.seed!(1) # Set seed for reproducibility
 # =========================
 systemData, clients, demandData = load_data()
 clients = filter(x -> x != "G", clients)
-clients = filter(x -> !(x in ["W", "N", "V", "J"]), clients)
+#clients = filter(x -> !(x in ["W", "N", "V", "J"]), clients)
 #clients = filter(x -> !(x in ["L", "U"]), clients)
 coalitions = collect(combinations(clients))
 
 # First hour 2024-03-04T12:00:00
 # Last hour 2025-04-26T03:45:00
-start_hour = DateTime(2025, 4, 19, 0, 0, 0)
+start_hour = DateTime(2025, 4, 05, 0, 0, 0)
 #start_hour = DateTime(2025, 3, 04, 12, 0, 0)
 #start_hour = start_hour + Dates.Day(3) # Start at 00:00 of the next day
 #sim_days = 50
-sim_days = 7
+sim_days = 20
 num_scenarios_demand = 5
 num_scenarios_price = 30 # Number of scenarios for imbalance spread
 time_horizon = 1 * 96 # Sets the chunk size for the simulation and the length of the imbalance spread scenarios
@@ -71,7 +71,7 @@ allocations = [
     "gately_interval",
     "full_cost",
     "reduced_cost",
-    #"nucleolus",
+    #nucleolus",
     #"equal_share",
     "flat_rate"
 ]
@@ -82,16 +82,6 @@ allocations = [
 # Calculating costs
 println("Calculating imbalance costs...")
 coalitionCosts, imbalances, imbalancesDict = @time imbalance_costs(systemData, clients, start_hour, sim_days, stochasticData; printing=false, chunkSize=time_horizon)
-
-
-# Calculating CVaR
-#println("Calculating CVaR for all coalitions...")
-#coalitionCVaR, imbalances = @time calculate_CVaR(systemData, clients, start_hour, sim_days; printing=false ,alpha=alpha)
-# NOTE: Only time one of these at a time, otherwise the last call will always be faster
-#println("Timing CVaR for gately")
-#_ = @time calculate_CVaR(systemData, clients, start_hour, sim_days; printing=false, alpha=alpha)
-#println("Timing CVaR for VCG")
-#_ = @time CVaR_VCG(systemData, clients, start_hour, sim_days; printing=false, alpha=alpha)
 
 # Checking MAE
 #MAE_demand, MAE_pv = calculate_MAE(systemData, demandForecast, pvForecast, clients, start_hour, sim_days)
@@ -164,16 +154,22 @@ plot_results(
     plot_data.sim_days
 )
 
-#plot_client = "U"
-#plot_variance(
-#    plot_data.allocations,
-#    plot_data.allocation_costs,
-#    plot_data.daily_cost_MWh_imbalance,
-#    plot_data.imbalances,
-#    plot_client,
-#    plot_data.sim_days;
-#    outliers = false
-#)
+
+println("Calculating allocations for daily plot...")
+daily_cost_MWh_imbalance, allocation_costs, imbalances, hourly_imbalances = @time allocation_variance(allocations, clients, systemData, stochasticData, start_hour, sim_days)
+
+plotClient = "V"
+plot_variance(
+    allocations,
+    allocation_costs,
+    daily_cost_MWh_imbalance,
+    imbalances,
+    plotClient,
+    sim_days;
+    outliers = false
+)
+
+
 
 GC.gc() # Run garbage collection to free memory after processing
 
