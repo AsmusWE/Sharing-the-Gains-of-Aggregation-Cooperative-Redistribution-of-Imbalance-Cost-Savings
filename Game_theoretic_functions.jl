@@ -354,7 +354,7 @@ function gately_point_interval(clients, imbalancesDict, systemData)
                 ImbalanceCosts[GCMinusClient] = 0.0
             end
         end
-        
+
         # Calculate Gately point for the current interval and add to the distribution
         gately_interval = gately_point(clients, ImbalanceCosts)
         # Check for NaN values in the Gately distribution for the current interval
@@ -660,7 +660,7 @@ function flat_rate_allocation(clients, coalitionCosts, demandData)
     # This function calculates the imbalance cost per MWh and allocates it evenly to all clients
     # This is roughly equivalent to the system currently in place
     allocation = Dict{String, Float64}()
-    total_costs = sum(coalitionCosts[[client]] for client in clients)
+    total_costs = coalitionCosts[clients]
     total_demand = sum(sum(demandData[!, client]) for client in clients)
     flat_rate = total_costs / total_demand
     for client in clients
