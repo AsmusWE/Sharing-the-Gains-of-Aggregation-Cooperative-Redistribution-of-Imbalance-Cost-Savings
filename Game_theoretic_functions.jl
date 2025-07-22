@@ -16,7 +16,7 @@ function calculate_allocations(
         "VCG_budget_balanced" => () -> VCG_BB(clients, coalitionCosts),
         "gately" => () -> deepcopy(gately_point(clients, coalitionCosts)),
         #"gately_daily" => () -> deepcopy(gately_point_daily(clients, hourly_imbalances, systemData)),
-        "gately_interval" => () -> deepcopy(gately_point_interval(clients, hourly_imbalances, systemData)),
+        "gately_interval" => () -> deepcopy(gately_point_interval(clients, imbalancesDict, systemData)),
         "full_cost" => () -> deepcopy(full_cost_transfer(clients, imbalancesDict, systemData)),
         "reduced_cost" => () -> deepcopy(reduced_cost(clients, imbalancesDict, systemData)),
         "nucleolus" => () -> begin
@@ -309,27 +309,54 @@ function gately_point(clients, imbalance_costs)
     return gately_distribution
 end
 
-function gately_point_interval(clients, interval_imbalances, systemData)
+function gately_point_interval(clients, imbalancesDict, systemData)
     # This function applies the Gately point calculation for each interval (15-min)
-    upreg_price = systemData["upreg_price"]
-    downreg_price = systemData["downreg_price"]
-    coalitions = collect(combinations(clients))
-    T = length(interval_imbalances[[clients[1]]])
+    T = length(imbalancesDict[[clients[1]]])
+    grandCoalition = vec(clients)
     gately_distribution = Dict(client => 0.0 for client in clients)
 
+    # Build imbalance costs for each interval
+    imbalance_spread = systemData["price_prod_demand_df"][!, "ImbalanceSpreadEUR"]
+    dominantDirection = systemData["price_prod_demand_df"][!, "DominatingDirection"]
+    ImbalanceCosts = Dict{Vector{String}, Float64}()
+
+    # Variable to store interval imbalances short term
+    tempImbalance= 0
     for t in 1:T
-        # Build imbalance_costs for the current interval
-        imbalance_costs = Dict{Vector{String}, Float64}()
-        for coalition in coalitions
-            temp_cost = sum(interval_imbalances[[c]][t] for c in coalition)
-            if temp_cost < 0
-                imbalance_costs[coalition] = abs(temp_cost) * upreg_price
+        # Calculate costs for the grand coalition
+        tempImbalance = imbalancesDict[grandCoalition][t]
+        if tempImbalance * dominantDirection[t] > 0
+            # Grand coalition has imbalance in the dominant direction
+            ImbalanceCosts[grandCoalition] = tempImbalance * imbalance_spread[t]
+        else
+            # Grand coalition has imbalance in the non-dominant direction
+            ImbalanceCosts[grandCoalition] = 0.0
+        end
+        
+        for (i, client) in enumerate(clients)
+            # Calculate the imbalance costs for each client
+            tempImbalance = imbalancesDict[[client]][t]
+            if tempImbalance * dominantDirection[t] > 0
+                # Client has imbalance in the dominant direction
+                ImbalanceCosts[[client]] = tempImbalance * imbalance_spread[t]
             else
-                imbalance_costs[coalition] = temp_cost * downreg_price
+                # Client has imbalance in the non-dominant direction
+                ImbalanceCosts[[client]] = 0.0
+            end
+            # Calculate for grand coalition minus the client
+            GCMinusClient = filter(c -> c != client, grandCoalition)
+            tempImbalance =  sum(imbalancesDict[[c]][t] for c in GCMinusClient)
+            if tempImbalance * dominantDirection[t] > 0
+                # Client has imbalance in the dominant direction
+                ImbalanceCosts[GCMinusClient] = tempImbalance * imbalance_spread[t]
+            else
+                # Client has imbalance in the non-dominant direction
+                ImbalanceCosts[GCMinusClient] = 0.0
             end
         end
+        
         # Calculate Gately point for the current interval and add to the distribution
-        gately_interval = gately_point(clients, imbalance_costs)
+        gately_interval = gately_point(clients, ImbalanceCosts)
         # Check for NaN values in the Gately distribution for the current interval
         if any(isnan, values(gately_interval))
             println("Warning: NaN detected in Gately distribution for interval $t.")
@@ -337,6 +364,7 @@ function gately_point_interval(clients, interval_imbalances, systemData)
         for client in clients
             gately_distribution[client] += gately_interval[client]
         end
+
     end
     return gately_distribution
 end

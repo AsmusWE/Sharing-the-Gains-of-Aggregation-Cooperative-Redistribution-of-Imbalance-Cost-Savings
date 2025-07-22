@@ -63,7 +63,7 @@ allocations = [
     #"VCG_budget_balanced",
     "gately",
     #"gately_daily",
-    #"gately_interval",
+    "gately_interval",
     "full_cost",
     "reduced_cost",
     "nucleolus",
