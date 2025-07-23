@@ -52,6 +52,7 @@ function load_data()
 
     # --- Filter combined data to include only clients without missing data ---
     combinedData = select(combinedData, Cols(:HourUTC_datetime, :SolarMWh, clients_without_missing_data..., :PVForecast))
+    demand = select(demand, Cols(:HourUTC_datetime, :Z, clients_without_missing_data...))
 
     # --- Change to 15 minute resolution for combinedData ---
     value_cols = names(combinedData, Not(:HourUTC_datetime))

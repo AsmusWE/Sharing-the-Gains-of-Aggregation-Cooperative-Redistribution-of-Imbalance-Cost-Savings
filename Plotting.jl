@@ -61,7 +61,7 @@ function plot_results(
         ylabel="€/MWh",
         xticks=(1:length(plotKeys), plotKeys),
         xrotation=45,
-        legend=:outerbottom
+        legend=:outertopright,
     ) #, ylim = (0, yMax * 1.1)
     for alloc in allocations
         if haskey(cost_MWh, alloc)
@@ -84,7 +84,7 @@ function plot_results(
         title="Imbalance cost per MWh vs PV Coverage",
         xlabel="PV Coverage of Demand [%]",
         ylabel="€/MWh",
-        legend=:outerbottom,
+        legend=:outertopright,
         #ylim = (0, yMax * 1.1),
     )
     
@@ -99,7 +99,7 @@ function plot_results(
     display(p_cvar_vs_pv)
 
     # Total CVaR
-    p_fees_total = plot(title="Total imbalance cost per client", xlabel="Client", ylabel="€", xticks=(1:length(plotKeys), plotKeys), xrotation=45, legend=:outerbottom)
+    p_fees_total = plot(title="Total imbalance cost per client", xlabel="Client", ylabel="€", xticks=(1:length(plotKeys), plotKeys), xrotation=45, legend=:outertopright)
     for alloc in allocations
         if haskey(allocation_costs, alloc)
             label, color = allocation_labels[alloc]
@@ -131,7 +131,7 @@ function plot_results(
         xticks=(1:length(plotKeys), plotKeys),
         xrotation=45,
         ylim=(0, 100),
-        legend=:outerbottom
+        legend=:outertopright
     )
     for alloc in allocations
         if haskey(CVaRRatio, alloc)
@@ -147,7 +147,7 @@ function plot_results(
         title="Contribution/individual Ratio vs PV Coverage",
         xlabel="PV Coverage of Demand [%]",
         ylabel="%",
-        legend=:outerbottom,
+        legend=:outertopright,
         ylim = (0, 100)
     )
     
@@ -179,7 +179,7 @@ function plot_results(
 
     # Plot total MWh demand per client
     total_MWh_demand = Dict(client => sum(dayData["price_prod_demand_df"][!, Symbol(client)]) for client in plotKeys)
-    p_total_demand = plot(title="Total MWh Demand per Client", xlabel="Client", ylabel="Total MWh Demand", xticks=(1:length(plotKeys), plotKeys), xrotation=45, legend=:outerbottom)
+    p_total_demand = plot(title="Total MWh Demand per Client", xlabel="Client", ylabel="Total MWh Demand", xticks=(1:length(plotKeys), plotKeys), xrotation=45, legend=:outertopright)
     plotVals_total_demand = [total_MWh_demand[k] for k in plotKeys]
     bar!(p_total_demand, 1:length(plotKeys), plotVals_total_demand, label="Total MWh Demand")
     display(p_total_demand)
@@ -280,7 +280,7 @@ function plot_variance(
         "shapley" => ("Shapley", :red),
         "VCG" => ("VCG", :yellow),
         "VCG_budget_balanced" => ("VCG Budget Balanced", :orange),
-        "gately" => ("Gately Point", :grey),
+        "gately" => ("Gately Daily", :grey),
         #"gately_daily" => ("Gately Daily", :black),
         "gately_interval" => ("Gately 15Min interval", :lightgrey),
         "full_cost" => ("Full Cost", :pink),

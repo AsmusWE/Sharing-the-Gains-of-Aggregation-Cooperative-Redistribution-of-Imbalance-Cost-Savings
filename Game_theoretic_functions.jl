@@ -63,6 +63,7 @@ function allocation_variance(
     clients::Vector{String}, 
     systemData, 
     stochasticData,
+    demandData,
     start_hour, 
     sim_days::Int
 )
@@ -82,15 +83,19 @@ function allocation_variance(
         curr_interval = start_hour + Dates.Minute((day - 1) * intervals_per_day * 15)
         println("Calculating allocations for day $day")
         
+        # Set the period for the data
+        tempSystemData = deepcopy(systemData)
+        tempSystemData = set_period!(tempSystemData, curr_interval, 1)
+        demandDF = deepcopy(demandData)
+        demandDF = set_period!(demandDF, curr_interval, 1)
+
+
         # Calculate imbalance costs for single day using imbalance_costs function
-        coalitionCosts_day, _, imbalancesDict_day = imbalance_costs(systemData, clients, curr_interval, 1, stochasticData; printing=false, chunkSize=1)
-        
-        # Create demandData for this day (needed for calculate_allocations)
-        tempData = create_time_period_data(systemData, curr_interval, intervals_per_day)
-        demandData = tempData["price_prod_demand_df"]
-        
+        coalitionCosts_day, _, imbalancesDict_day = imbalance_costs(tempSystemData, clients, curr_interval, 1, stochasticData; printing=false, chunkSize=1)
+
+
         daily_allocations = calculate_allocations(
-            allocations, clients, coalitions, coalitionCosts_day, imbalancesDict_day, imbalancesDict_day, systemData, demandData; printing = false
+            allocations, clients, coalitions, coalitionCosts_day, imbalancesDict_day, imbalancesDict_day, tempSystemData, demandDF; printing = false
         )
         
         # Extracting allocations and adding them to total client allocation

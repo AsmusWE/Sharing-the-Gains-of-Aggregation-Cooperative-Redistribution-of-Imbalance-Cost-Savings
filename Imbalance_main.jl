@@ -31,7 +31,7 @@ start_hour = DateTime(2025, 4, 05, 0, 0, 0)
 #start_hour = DateTime(2025, 3, 04, 12, 0, 0)
 #start_hour = start_hour + Dates.Day(3) # Start at 00:00 of the next day
 #sim_days = 50
-sim_days = 20
+sim_days = 3
 num_scenarios_demand = 5
 num_scenarios_price = 30 # Number of scenarios for imbalance spread
 time_horizon = 1 * 96 # Sets the chunk size for the simulation and the length of the imbalance spread scenarios
@@ -156,9 +156,13 @@ plot_results(
 
 
 println("Calculating allocations for daily plot...")
-daily_cost_MWh_imbalance, allocation_costs, imbalances, hourly_imbalances = @time allocation_variance(allocations, clients, systemData, stochasticData, start_hour, sim_days)
+daily_cost_MWh_imbalance, allocation_costs, imbalances, hourly_imbalances = @time allocation_variance(allocations, clients, systemData, stochasticData, demandData, start_hour, sim_days)
 
 plotClient = "V"
+
+# Remove flat_rate allocation until it is fixed
+allocations = filter(x -> x != "flat_rate", allocations)
+
 plot_variance(
     allocations,
     allocation_costs,
