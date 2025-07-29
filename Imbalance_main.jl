@@ -20,21 +20,24 @@ Random.seed!(1) # Set seed for reproducibility
 # 1. Data Loading & Setup
 # =========================
 systemData, clients, demandData = load_data()
-clients = filter(x -> x != "G", clients)
-#clients = filter(x -> !(x in ["W", "N", "V", "J"]), clients)
-#clients = filter(x -> !(x in ["L", "U"]), clients)
+firstHour = minimum(systemData["price_prod_demand_df"][!, :HourUTC_datetime])
+lastHour = maximum(systemData["price_prod_demand_df"][!, :HourUTC_datetime])
+clients = filter(x -> !(x in ["X", "W", "N","F", "V", "J","T"]), clients)
 coalitions = collect(combinations(clients))
 
-# First hour 2024-03-04T12:00:00
-# Last hour 2025-04-26T03:45:00
-start_hour = DateTime(2025, 4, 05, 0, 0, 0)
+# First hour 2025-03-04T12:00:00
+# Last hour 2025-07-20T03:45:00
+start_hour = DateTime(2025, 4, 04, 00, 0, 0)
 #start_hour = DateTime(2025, 3, 04, 12, 0, 0)
 #start_hour = start_hour + Dates.Day(3) # Start at 00:00 of the next day
 #sim_days = 50
-sim_days = 3
+sim_days = Int(floor((lastHour - start_hour) / Dates.Day(1)))-1 # Calculate number of days from start_hour to lastHour
+println("Simulation period: ", start_hour, " to ", start_hour + Dates.Day(sim_days - 1))
+println("Number of simulation days: ", sim_days)
 num_scenarios_demand = 5
 num_scenarios_price = 30 # Number of scenarios for imbalance spread
 time_horizon = 1 * 96 # Sets the chunk size for the simulation and the length of the imbalance spread scenarios
+chunkSize = Int(time_horizon / 96) # Number of 15-minute intervals in each chunk
 alpha = 0.05 # CVaR alpha level
 
 stochasticData = Dict(
@@ -65,13 +68,13 @@ demandData = set_period!(demandData, start_hour, sim_days)
 allocations = [
     "shapley",
     "VCG",
-    #"VCG_budget_balanced",
+    "VCG_budget_balanced",
     "gately",
     #"gately_daily",
     "gately_interval",
     "full_cost",
     "reduced_cost",
-    #nucleolus",
+    "nucleolus",
     #"equal_share",
     "flat_rate"
 ]
@@ -81,7 +84,7 @@ allocations = [
 # =========================
 # Calculating costs
 println("Calculating imbalance costs...")
-coalitionCosts, imbalances, imbalancesDict = @time imbalance_costs(systemData, clients, start_hour, sim_days, stochasticData; printing=false, chunkSize=time_horizon)
+coalitionCosts, imbalances, imbalancesDict = @time imbalance_costs(systemData, clients, start_hour, sim_days, stochasticData; printing=true, chunkSize=chunkSize)
 
 # Checking MAE
 #MAE_demand, MAE_pv = calculate_MAE(systemData, demandForecast, pvForecast, clients, start_hour, sim_days)
@@ -141,7 +144,7 @@ plot_data = PlotData(
     0 # Placeholder for daily_cost_MWh_imbalance, as it is not calculated in this script
 )
 # Save plot_data to the "Results" subfolder
-serialize("Results/temp.jls", plot_data)
+serialize("Results/all_scens.jls", plot_data)
 
 # Use the struct for plotting
 plot_results(
@@ -154,14 +157,18 @@ plot_results(
     plot_data.sim_days
 )
 
-
-println("Calculating allocations for daily plot...")
-daily_cost_MWh_imbalance, allocation_costs, imbalances, hourly_imbalances = @time allocation_variance(allocations, clients, systemData, stochasticData, demandData, start_hour, sim_days)
-
-plotClient = "V"
-
 # Remove flat_rate allocation until it is fixed
 allocations = filter(x -> x != "flat_rate", allocations)
+# Remove nucleolus allocation as it is too slow 
+allocations = filter(x -> x != "nucleolus", allocations)
+
+println("Calculating allocations for daily plot...")
+daily_cost_MWh_imbalance, allocation_costs, imbalances, hourly_imbalances, allocation_costs_daily_ratio = @time allocation_variance(allocations, clients, systemData, stochasticData, demandData, start_hour, sim_days)
+
+
+plotClient = "Y"
+
+
 
 plot_variance(
     allocations,

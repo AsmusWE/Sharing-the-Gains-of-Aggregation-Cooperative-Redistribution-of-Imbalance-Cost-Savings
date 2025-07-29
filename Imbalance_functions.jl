@@ -220,24 +220,41 @@ function imbalance_costs(systemData, clients, startDay, days, stochasticData; pr
     tempData = create_time_period_data(systemData, startDay, intervals)
     
     # Calculate imbalances for all coalitions
-    coalitions, period_interval_imbalance = chunk_imbalance(tempData, clients, stochasticData; printing, chunkSize)
-    
+    coalitions, period_interval_imbalance = chunk_imbalance(tempData, clients, stochasticData; printing=printing, chunkSize=chunkSize)
+
     # Calculate imbalance costs for each coalition
     imbalance_spread = tempData["price_prod_demand_df"][!, "ImbalanceSpreadEUR"]
     dominantDirection = tempData["price_prod_demand_df"][!, "DominatingDirection"]
+    
+    # Memory-efficient calculation: process each coalition individually to avoid large matrices
     coalition_costs = Dict{Any, Float64}()
+    imbalanceDict = Dict{Any, SubArray{Float64}}()
+    
+    abs_spread = abs.(imbalance_spread)  # Pre-compute absolute values
+    n_coalitions = length(coalitions)
+    progress_interval = max(1, div(n_coalitions, 20))  # Print progress 20 times total
+    
     for (i, coalition) in enumerate(coalitions)
-        # Calculate costs for each coalition considering dominant direction
-        # Multiply imbalance by dominant direction, then set negative values to 0
-        # Ensures that only imbalances in dominant direction pay
-        imbalance_with_direction = period_interval_imbalance[i, :] .* dominantDirection
-        imbalance_costs = max.(imbalance_with_direction, 0) .* abs.(imbalance_spread)
-        coalition_costs[coalition] = sum(imbalance_costs)
-    end
-    # Convert period_interval_imbalance to a dictionary for easier access
-    imbalanceDict = Dict{Any, Vector{Float64}}()
-    for (i, coalition) in enumerate(coalitions)
-        imbalanceDict[coalition] = view(period_interval_imbalance, i, :)
+        # Calculate costs for this coalition only, avoiding intermediate matrices
+        total_cost = 0.0
+        imbalance_row = view(period_interval_imbalance, i, :)
+        
+        # Process each time interval individually
+        for j in eachindex(dominantDirection)
+            imbalance_with_dir = imbalance_row[j] * dominantDirection[j]
+            if imbalance_with_dir > 0
+                total_cost += imbalance_with_dir * abs_spread[j]
+            end
+        end
+        
+        coalition_costs[coalition] = total_cost
+        imbalanceDict[coalition] = imbalance_row
+        
+        # Print progress at regular intervals
+        if (i % progress_interval == 0 || i == n_coalitions) && printing
+            percentage = round(100 * i / n_coalitions, digits=1)
+            println("Processing coalition $i of $n_coalitions ($percentage%)")
+        end
     end
 
     return coalition_costs, period_interval_imbalance, imbalanceDict

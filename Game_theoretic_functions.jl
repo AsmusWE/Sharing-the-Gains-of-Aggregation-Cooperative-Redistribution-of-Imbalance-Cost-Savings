@@ -74,7 +74,8 @@ function allocation_variance(
     coalitions = collect(combinations(clients))
     
     # Initialize data structures
-    allocation_costs_daily_scaled = Dict{Tuple{String, String, Int}, Float64}()
+    allocation_costs_daily_MWh = Dict{Tuple{String, String, Int}, Float64}()
+    allocation_costs_daily_ratio = Dict{Tuple{String, String, Int}, Float64}()
     allocation_costs = Dict(allocation => Dict(client => 0.0 for client in clients) for allocation in allocations)
     imbalances = Dict(coalition => 0.0 for coalition in coalitions)
     interval_imbalances = Dict(client => Float64[] for client in clients)
@@ -103,11 +104,12 @@ function allocation_variance(
             alloc = daily_allocations[allocation]
             for client in clients
                 allocation_costs[allocation][client] += alloc[client]
-                # Scale allocations to cost per MWh imbalance - avoid division by zero
+                # Scale allocations to cost per MWh total demand - avoid division by zero
                 if coalitionCosts_day[[client]] != 0.0
-                    allocation_costs_daily_scaled[(client, allocation, day)] = alloc[client] / coalitionCosts_day[[client]]
+                    allocation_costs_daily_MWh[(client, allocation, day)] = alloc[client] / sum(demandDF[!,client])
+                    allocation_costs_daily_ratio[(client, allocation, day)] = alloc[client] / coalitionCosts_day[[client]]
                 else
-                    allocation_costs_daily_scaled[(client, allocation, day)] = 0.0
+                    allocation_costs_daily_MWh[(client, allocation, day)] = 0.0
                 end
             end
         end
@@ -125,7 +127,7 @@ function allocation_variance(
         end
     end
 
-    return allocation_costs_daily_scaled, allocation_costs, imbalances, interval_imbalances
+    return allocation_costs_daily_MWh, allocation_costs, imbalances, interval_imbalances, allocation_costs_daily_ratio
 end
 
 
@@ -307,6 +309,7 @@ end
 function gately_point(clients, imbalance_costs)
     # This function calculates the Gately point for the given clients and their imbalance costs
     A = length(clients)
+    # List of costs of coalitions of length A-1
     v_without = [imbalance_costs[filter(x -> x != client, clients)] for client in clients]
     v = [imbalance_costs[[client]] for client in clients]
     total_imbalance = imbalance_costs[clients]
@@ -476,7 +479,6 @@ function reduced_cost(clients, imbalancesDict, systemData)
 
     return client_cost
 end
-
 
 function nucleolus(clients, imbalances)
     # Optimized nucleolus computation with reduced memory allocations

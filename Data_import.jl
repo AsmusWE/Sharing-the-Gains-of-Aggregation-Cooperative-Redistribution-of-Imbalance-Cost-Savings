@@ -1,6 +1,7 @@
 using CSV
 using DataFrames
 using TimeZones
+using Dates
 
 """
     load_data() -> Dict, Vector{String}
@@ -81,15 +82,19 @@ function load_data()
     priceData[!, :HourUTC_datetime] = DateTime.(priceData[:, :TimeUTC], DateFormat("yyyy-mm-dd HH:MM:SS"))
     priceData = select(priceData, [:HourUTC_datetime, :ImbalancePriceEUR, :SpotPriceEUR, :DominatingDirection])
     priceData[!, :ImbalanceSpreadEUR] = priceData[!, :ImbalancePriceEUR] .- priceData[!, :SpotPriceEUR]
+    # Fill missing ImbalanceSpreadEUR values with 0.0
+    priceData[!, :ImbalanceSpreadEUR] = coalesce.(priceData[!, :ImbalanceSpreadEUR], 0.0)
     
     # Fill missing DominatingDirection values based on ImbalanceSpreadEUR
     #priceData[!, :DominatingDirection] = coalesce.(priceData[!, :DominatingDirection], 
     #                                              sign.(priceData[!, :ImbalanceSpreadEUR]))
     # Generate new DominatingDirection column based on ImbalanceSpreadEUR
     # This is done because of errors in the dominatingDirection data
-    priceData[!, :DominatingDirection] = ifelse.(priceData[!, :ImbalanceSpreadEUR] .> 0, 1,
-                                                         ifelse.(priceData[!, :ImbalanceSpreadEUR] .< 0, -1, 0))
-    
+    # If there are missing price values, dominatingDirection is set to 0
+    priceData[!, :DominatingDirection] = ifelse.(coalesce.(priceData[!, :ImbalanceSpreadEUR], 0.0) .> 0, 1,
+                                                         ifelse.(coalesce.(priceData[!, :ImbalanceSpreadEUR], 0.0) .< 0, -1, 0))
+    println("missing DominatingDirection values: ", count(ismissing, priceData[!, :DominatingDirection]))
+    println("missing ImbalanceSpreadEUR values: ", count(ismissing, priceData[!, :ImbalanceSpreadEUR]))
 
     priceData = select(priceData, [:HourUTC_datetime, :ImbalanceSpreadEUR, :DominatingDirection])
 
