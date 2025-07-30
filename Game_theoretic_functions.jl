@@ -75,8 +75,16 @@ function allocation_variance(
     coalitions = collect(combinations(clients))
     
     # Initialize data structures
-    allocation_costs_daily_MWh = Dict{Tuple{String, String, Int}, Float64}()
-    allocation_costs_daily_ratio = Dict{Tuple{String, String, Int}, Float64}()
+    #allocation_costs_daily_MWh = Dict{Tuple{String, String, Int}, Float64}()
+    #allocation_costs_daily_ratio = Dict{Tuple{String, String, Int}, Float64}()
+    # client, allocation vector of days
+    allocation_costs_daily = Dict{Tuple{String, String}, Vector{Float64}}()
+    # Initialize empty vectors for each client-allocation combination
+    for client in clients
+        for allocation in allocations
+            allocation_costs_daily[(client, allocation)] = Float64[]
+        end
+    end
     allocation_costs = Dict(allocation => Dict(client => 0.0 for client in clients) for allocation in allocations)
     imbalances = Dict(coalition => 0.0 for coalition in coalitions)
     interval_imbalances = Dict(client => Float64[] for client in clients)
@@ -86,11 +94,8 @@ function allocation_variance(
         println("Calculating allocations for day $day")
         
         # Set the period for the data
-        tempSystemData = deepcopy(systemData)
-        tempSystemData = set_period!(tempSystemData, curr_interval, 1)
-        demandDF = deepcopy(demandData)
-        demandDF = set_period!(demandDF, curr_interval, 1)
-
+        tempSystemData = set_period!(deepcopy(systemData), curr_interval, 1)
+        demandDF = set_period!(deepcopy(demandData), curr_interval, 1)
 
         # Calculate imbalance costs for single day using imbalance_costs function
         coalitionCosts_day, _, imbalancesDict_day = imbalance_costs(tempSystemData, clients, curr_interval, 1, stochasticData; printing=false, chunkSize=1)
@@ -107,10 +112,12 @@ function allocation_variance(
                 allocation_costs[allocation][client] += alloc[client]
                 # Scale allocations to cost per MWh total demand - avoid division by zero
                 if coalitionCosts_day[[client]] != 0.0
-                    allocation_costs_daily_MWh[(client, allocation, day)] = alloc[client] / sum(demandDF[!,client])
-                    allocation_costs_daily_ratio[(client, allocation, day)] = alloc[client] / coalitionCosts_day[[client]]
+                    push!(allocation_costs_daily[(client, allocation)], alloc[client])
+                    #allocation_costs_daily_MWh[(client, allocation, day)] = alloc[client] / sum(demandDF[!,client])
+                    #allocation_costs_daily_ratio[(client, allocation, day)] = alloc[client] / coalitionCosts_day[[client]]
                 else
-                    allocation_costs_daily_MWh[(client, allocation, day)] = 0.0
+                    #allocation_costs_daily_MWh[(client, allocation, day)] = 0.0
+                    #allocation_costs_daily_ratio[(client, allocation, day)] = 0.0
                 end
             end
         end
@@ -128,7 +135,7 @@ function allocation_variance(
         end
     end
 
-    return allocation_costs_daily_MWh, allocation_costs, imbalances, interval_imbalances, allocation_costs_daily_ratio
+    return allocation_costs_daily, allocation_costs, imbalances, interval_imbalances
 end
 
 

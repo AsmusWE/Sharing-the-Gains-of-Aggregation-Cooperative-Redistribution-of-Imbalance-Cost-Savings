@@ -38,7 +38,7 @@ function plot_results(
         "gately" => ("Gately Point", :grey),
         #"gately_daily" => ("Gately Daily", :black),
         "gately_interval" => ("Gately 15Min interval", :lightgrey),
-        "full_cost" => ("Full Cost", :pink),
+        "full_cost" => ("Uniform Price", :pink),
         "reduced_cost" => ("Reduced Cost", :lightblue),
         "nucleolus" => ("Nucleolus", :green),
         "equal_share" => ("Equal Share", :purple),
@@ -184,9 +184,9 @@ function plot_results(
 
     # Plot total MWh demand per client
     total_MWh_demand = Dict(client => sum(dayData["price_prod_demand_df"][!, Symbol(client)]) for client in plotKeys)
-    p_total_demand = plot(title="Total MWh Demand per Client", xlabel="Client", ylabel="Total MWh Demand", xticks=(1:length(plotKeys), plotKeys), xrotation=45, legend=:outertopright)
+    p_total_demand = plot(title="Total MWh Demand per Client", xlabel="Client", ylabel="Total Demand [MWh]", xticks=(1:length(plotKeys), plotKeys), xrotation=45, legend=:topright)
     plotVals_total_demand = [total_MWh_demand[k] for k in plotKeys]
-    bar!(p_total_demand, 1:length(plotKeys), plotVals_total_demand, label="Total MWh Demand")
+    bar!(p_total_demand, 1:length(plotKeys), plotVals_total_demand, label=false)
     display(p_total_demand)
 end
 
@@ -273,9 +273,7 @@ end
 
 function plot_variance(
     allocations,
-    allocation_costs,
-    daily_cost_MWh_imbalance,
-    imbalances,
+    daily_cost,
     plot_client,
     sim_days;
     outliers = true
@@ -297,33 +295,31 @@ function plot_variance(
     )
 
     # Allocations that should not be plotted
-    skip_allocations = ["gately", "flat_rate", "VCG", "VCG_budget_balanced", "nucleolus"]
+    skip_allocations = ["gately", "VCG", "VCG_budget_balanced", "nucleolus", "flat_rate"]
     
     # Filter allocations for x-axis labels
     filtered_allocations = [a for a in allocations if haskey(allocation_labels, a) && !(a in skip_allocations)]
     
     p_variance = plot(
-        title="Imbalance cost per MWh, client $plot_client",
+        title="Imbalance cost per day, client $plot_client",
         xlabel="Allocation",
-        ylabel="Imbalance cost per MWh [€/MWh]",
+        ylabel="Imbalance cost per day [€/day]",
         xticks=(1:length(filtered_allocations), [allocation_labels[a][1] for a in filtered_allocations]),
         legend = :none,
         xrotation=0
     )
     
     plot_index = 1
-    for alloc in allocations
-        if haskey(allocation_labels, alloc) && !(alloc in skip_allocations)
-            label, color = allocation_labels[alloc]
-            plotVals = [daily_cost_MWh_imbalance[(plot_client, alloc, day)] for day in 1:sim_days]
-            boxplot!(fill(plot_index, sim_days), plotVals; color=color, markerstrokecolor=:black, label=label, outliers=outliers)
-            #mean_val_unweighted = sum(plotVals) / length(plotVals)
-            #mean_val_weighted = allocation_costs[alloc][plot_client]/imbalances[[plot_client]]
-            #annotate!(plot_index, mean_val_unweighted, text(string(round(mean_val_unweighted, digits=4)), :black, :center, 8))
-            # Add a blue line for the weighted mean
-            #plot!([plot_index-0.4, plot_index+0.4], [mean_val_weighted, mean_val_weighted], color=:blue, linewidth=2, label=false)
-            plot_index += 1
-        end
+    for alloc in filtered_allocations
+        label, color = allocation_labels[alloc]
+        plotVals = daily_cost[(plot_client, alloc)]
+        boxplot!(fill(plot_index, sim_days), plotVals; color=color, markerstrokecolor=:black, label=label, outliers=outliers)
+        #mean_val_unweighted = sum(plotVals) / length(plotVals)
+        #mean_val_weighted = allocation_costs[alloc][plot_client]/imbalances[[plot_client]]
+        #annotate!(plot_index, mean_val_unweighted, text(string(round(mean_val_unweighted, digits=4)), :black, :center, 8))
+        # Add a blue line for the weighted mean
+        #plot!([plot_index-0.4, plot_index+0.4], [mean_val_weighted, mean_val_weighted], color=:blue, linewidth=2, label=false)
+        plot_index += 1
     end
     display(p_variance)
 end

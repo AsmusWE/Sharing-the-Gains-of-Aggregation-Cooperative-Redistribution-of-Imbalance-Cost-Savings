@@ -23,7 +23,7 @@ systemData, clients, demandData = load_data()
 firstHour = minimum(systemData["price_prod_demand_df"][!, :HourUTC_datetime])
 lastHour = maximum(systemData["price_prod_demand_df"][!, :HourUTC_datetime])
 # Filter out smallest clients if using nucleolus
-#clients = filter(x -> !(x in ["X", "W", "N","F", "V", "J","T"]), clients)
+clients = filter(x -> !(x in ["X", "W", "N","F", "V", "J","T"]), clients)
 coalitions = collect(combinations(clients))
 
 # First hour 2025-03-04T12:00:00
@@ -32,7 +32,7 @@ start_hour = DateTime(2025, 4, 04, 00, 0, 0)
 #start_hour = DateTime(2025, 3, 04, 12, 0, 0)
 #start_hour = start_hour + Dates.Day(3) # Start at 00:00 of the next day
 #sim_days = 50
-sim_days = Int(floor((lastHour - start_hour) / Dates.Day(1)))-1 # Calculate number of days from start_hour to lastHour
+sim_days = Int(floor((lastHour - start_hour) / Dates.Day(1)))-100 # Calculate number of days from start_hour to lastHour
 println("Simulation period: ", start_hour, " to ", start_hour + Dates.Day(sim_days - 1))
 println("Number of simulation days: ", sim_days)
 num_scenarios_demand = 5
@@ -119,7 +119,7 @@ individual_Cost_sum = sum(coalitionCosts[[client]] for client in clients)
 println("Grand coalition Cost: ", grand_coalition_Cost)
 println("Sum of individual client Cost: ", individual_Cost_sum)
 #println("Difference: ", grand_coalition_imbalance - individual_imbalance_sum)
-if allocation_costs["VCG"] !== nothing
+if "VCG" in allocations
     VCG_cost = sum(values(allocation_costs["VCG"]))
     println("VCG cost: ", VCG_cost)
     println("VCG subsidies: ", grand_coalition_Cost - VCG_cost)
@@ -149,69 +149,40 @@ plot_data = PlotData(
     0 # Placeholder for daily_cost_MWh_imbalance, as it is not calculated in this script
 )
 # Save plot_data to the "Results" subfolder
-serialize("Results/all_pvPerf.jls", plot_data)
-
-# Use the struct for plotting
-plot_results(
-    plot_data.allocations,
-    plot_data.systemData,
-    plot_data.allocation_costs,
-    plot_data.imbalances,
-    plot_data.clients,
-    plot_data.start_hour,
-    plot_data.sim_days
-)
+serialize("Results/all_scens_temp.jls", plot_data)
 
 # Remove flat_rate allocation until it is fixed
-allocations = filter(x -> x != "flat_rate", allocations)
+#allocations = filter(x -> x != "flat_rate", allocations)
 # Remove nucleolus allocation as it is too slow 
 allocations = filter(x -> x != "nucleolus", allocations)
 
 println("Calculating allocations for daily plot...")
-daily_cost_MWh_imbalance, allocation_costs, imbalances, hourly_imbalances, allocation_costs_daily_ratio = @time allocation_variance(allocations, clients, systemData, stochasticData, demandData, start_hour, sim_days)
-
-plotClient = "V"
+dailyCost, totalCost, totalImbalances, intervalImbalances = @time allocation_variance(allocations, clients, systemData, stochasticData, demandData, start_hour, sim_days)
 
 # Define a struct to hold variance plot data
 struct VariancePlotData
     allocations::Vector{String}
-    allocation_costs::Dict{String, Any}
-    daily_cost_MWh_imbalance::Any
-    imbalances::Dict{Any, Any}
-    hourly_imbalances::Any
-    allocation_costs_daily_ratio::Any
+    totalCost::Dict{String, Any}
+    dailyCost::Any
+    totalImbalances::Dict{Any, Any}
+    intervalImbalances::Any
     clients::Vector{String}
     sim_days::Int
-    plotClient::String
 end
 
 # Create an instance of VariancePlotData
 variance_plot_data = VariancePlotData(
     allocations,
-    allocation_costs,
-    daily_cost_MWh_imbalance,
-    imbalances,
-    hourly_imbalances,
-    allocation_costs_daily_ratio,
+    totalCost,
+    dailyCost,
+    totalImbalances,
+    intervalImbalances,
     clients,
-    sim_days,
-    plotClient
+    sim_days
 )
 
 # Save variance plot data to the "Results" subfolder
-serialize("Results/variance_plot_data_pvPerf.jls", variance_plot_data)
-println("Variance plot data saved to Results/variance_plot_data.jls")
-
-plot_variance(
-    allocations,
-    allocation_costs,
-    daily_cost_MWh_imbalance,
-    imbalances,
-    plotClient,
-    sim_days;
-    outliers = false
-)
-
+serialize("Results/variance_plot_data_scens_temp.jls", variance_plot_data)
 
 
 GC.gc() # Run garbage collection to free memory after processing
