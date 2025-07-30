@@ -23,7 +23,7 @@ systemData, clients, demandData = load_data()
 firstHour = minimum(systemData["price_prod_demand_df"][!, :HourUTC_datetime])
 lastHour = maximum(systemData["price_prod_demand_df"][!, :HourUTC_datetime])
 # Filter out smallest clients if using nucleolus
-clients = filter(x -> !(x in ["X", "W", "N","F", "V", "J","T"]), clients)
+#clients = filter(x -> !(x in ["X", "W", "N","F", "V", "J","T"]), clients)
 coalitions = collect(combinations(clients))
 
 # First hour 2025-03-04T12:00:00
@@ -32,7 +32,7 @@ start_hour = DateTime(2025, 4, 04, 00, 0, 0)
 #start_hour = DateTime(2025, 3, 04, 12, 0, 0)
 #start_hour = start_hour + Dates.Day(3) # Start at 00:00 of the next day
 #sim_days = 50
-sim_days = Int(floor((lastHour - start_hour) / Dates.Day(1)))-100 # Calculate number of days from start_hour to lastHour
+sim_days = Int(floor((lastHour - start_hour) / Dates.Day(1)))-1 # Calculate number of days from start_hour to lastHour
 println("Simulation period: ", start_hour, " to ", start_hour + Dates.Day(sim_days - 1))
 println("Number of simulation days: ", sim_days)
 num_scenarios_demand = 5
@@ -43,7 +43,7 @@ alpha = 0.05 # CVaR alpha level
 
 stochasticData = Dict(
     # Accepted forecast types: "perfect", "scenarios", "noise"
-    "pv_forecast" => "scenarios",
+    "pv_forecast" => "perfect",
     "demand_forecast" => "scenarios",
     # Set standard deviations for noise
     # Adjusting so demand MAE is 7-10% and PV MAE is 22.5-25%
@@ -149,13 +149,13 @@ plot_data = PlotData(
     0 # Placeholder for daily_cost_MWh_imbalance, as it is not calculated in this script
 )
 # Save plot_data to the "Results" subfolder
-serialize("Results/all_scens_temp.jls", plot_data)
+serialize("Results/all_perfectPV.jls", plot_data)
 
 # Remove flat_rate allocation until it is fixed
 #allocations = filter(x -> x != "flat_rate", allocations)
 # Remove nucleolus allocation as it is too slow 
 allocations = filter(x -> x != "nucleolus", allocations)
-
+return # stop execution here to avoid calculating unused allocations
 println("Calculating allocations for daily plot...")
 dailyCost, totalCost, totalImbalances, intervalImbalances = @time allocation_variance(allocations, clients, systemData, stochasticData, demandData, start_hour, sim_days)
 

@@ -17,7 +17,8 @@ function plot_results(
     coalitionCVaR,
     clients,
     start_hour,
-    sim_days
+    sim_days,
+    allocation_labels
 )
     # Cutting data to the specified start hour and sim_days
     start_idx = findfirst(x -> x >= start_hour, systemData["price_prod_demand_df"][!,"HourUTC_datetime"])
@@ -25,26 +26,8 @@ function plot_results(
     dayData = deepcopy(systemData)
     dayData["price_prod_demand_df"] = systemData["price_prod_demand_df"][start_idx:end_idx, :]
 
-    # Rank clients by average demand
-    avg_demands = Dict(client => sum(dayData["price_prod_demand_df"][!, Symbol(client)]) / length(dayData["price_prod_demand_df"][!, Symbol(client)]) for client in clients)
-    sorted_clients = sort(collect(avg_demands), by = x -> -x[2])
-    plotKeys = [client for (client, _) in sorted_clients]
-
-    # Prepare color and label mapping for allocations
-    allocation_labels = Dict(
-        "shapley" => ("Shapley", :red),
-        "VCG" => ("VCG", :yellow),
-        "VCG_budget_balanced" => ("VCG Budget Balanced", :orange),
-        "gately" => ("Gately Point", :grey),
-        #"gately_daily" => ("Gately Daily", :black),
-        "gately_interval" => ("Gately 15Min interval", :lightgrey),
-        "full_cost" => ("Uniform Price", :pink),
-        "reduced_cost" => ("Reduced Cost", :lightblue),
-        "nucleolus" => ("Nucleolus", :green),
-        "equal_share" => ("Equal Share", :purple),
-        #"cost_based" => ("Cost Based", :cyan),
-        "flat_rate" => ("Flat Rate", :cyan)
-    )
+    # Use clients directly (sorting should be done in plotting_main)
+    plotKeys = clients
 
     skip_allocations = ["VCG", "VCG_budget_balanced", "nucleolus"]
     # Filter allocations to exclude skipped allocations
@@ -198,17 +181,6 @@ function save_rel_imbal(all_noise, all_scen, nuc_noise, nuc_scen)
         "Nucleolus, Noise",
         "Nucleolus, Scenario"
     ]
-    allocation_labels = Dict(
-        "shapley" => ("Shapley", :red),
-        "VCG" => ("VCG", :yellow),
-        "VCG_budget_balanced" => ("VCG Budget Balanced", :orange),
-        "gately_daily" => ("Gately Daily", :grey),
-        #"gately_daily" => ("Gately Daily", :black),
-        "gately_interval" => ("Gately 15Min interval", :lightgrey),
-        "full_cost" => ("Full Cost", :pink),
-        "reduced_cost" => ("Reduced Cost", :lightblue),
-        "nucleolus" => ("Nucleolus", :green)
-    )
     all_rows = DataFrame()
     for idx in 1:4
         pd = plotdata_list[idx]
@@ -275,25 +247,10 @@ function plot_variance(
     allocations,
     daily_cost,
     plot_client,
-    sim_days;
+    sim_days,
+    allocation_labels;
     outliers = true
 )
-    # Prepare color and label mapping for allocations
-    allocation_labels = Dict(
-        "shapley" => ("Shapley", :red),
-        "VCG" => ("VCG", :yellow),
-        "VCG_budget_balanced" => ("VCG Budget Balanced", :orange),
-        "gately" => ("Gately Daily", :grey),
-        #"gately_daily" => ("Gately Daily", :black),
-        "gately_interval" => ("Gately 15Min", :lightgrey),
-        "full_cost" => ("Full Cost", :pink),
-        "reduced_cost" => ("Reduced Cost", :lightblue),
-        "nucleolus" => ("Nucleolus", :green),
-        "equal_share" => ("Equal Share", :purple),
-        #"cost_based" => ("Cost Based", :cyan),
-        "flat_rate" => ("Flat Rate", :cyan)
-    )
-
     # Allocations that should not be plotted
     skip_allocations = ["gately", "VCG", "VCG_budget_balanced", "nucleolus", "flat_rate"]
     
@@ -322,4 +279,58 @@ function plot_variance(
         plot_index += 1
     end
     display(p_variance)
+end
+
+function plot_cost_difference(allocation_costs, clients, systemData)
+    # This function compares the cost of the most expensive allocation with the least expensive for each client
+    # Flat_rate is excluded from this comparison
+    filtered_allocations = filter(x -> x != "flat_rate", keys(allocation_costs))
+    filtered_allocations = filter(x -> x != "VCG" && x != "VCG_budget_balanced", filtered_allocations)
+    
+    # Calculate cost per MWh for each allocation
+    cost_MWh = Dict()
+    for alloc in filtered_allocations
+        if haskey(allocation_costs, alloc)
+            cost_MWh[alloc] = scale_distribution!(allocation_costs[alloc], systemData["price_prod_demand_df"], clients)
+        end
+    end
+    
+    # Calculate percentage increase and absolute difference for each client
+    cost_percent_increase = Dict{String, Float64}()
+    cost_absolute_difference = Dict{String, Float64}()
+    for client in clients
+        max_cost = maximum(cost_MWh[alloc][client] for alloc in filtered_allocations)
+        min_cost = minimum(cost_MWh[alloc][client] for alloc in filtered_allocations)
+        # Calculate percentage increase: ((max - min) / min) * 100
+        cost_percent_increase[client] = ((max_cost - min_cost) / min_cost) * 100
+        # Calculate absolute difference in €/MWh
+        cost_absolute_difference[client] = max_cost - min_cost
+    end
+
+    # Create two separate plots
+    p1 = bar(
+        1:length(clients),
+        [cost_percent_increase[client] for client in clients],
+        title="Cost Increase: Percentage",
+        xlabel="Client",
+        ylabel="Percentage Increase [%]",
+        xticks=(1:length(clients), clients),
+        xrotation=45,
+        color=:blue,
+        legend=:none
+    )
+    display(p1)
+    
+    p2 = bar(
+        1:length(clients),
+        [cost_absolute_difference[client] for client in clients],
+        title="Cost Increase: Absolute",
+        xlabel="Client",
+        ylabel="Cost Difference [€/MWh]",
+        xticks=(1:length(clients), clients),
+        xrotation=45,
+        color=:red,
+        legend=:none
+    )
+    display(p2)
 end
