@@ -44,10 +44,11 @@ function calculate_allocations(
             if printing && haskey(allocation_print_map, allocation)
                 println(allocation_print_map[allocation])
                 allocation_costs[allocation] = @time allocation_map[allocation]()
-            elseif return_time
-                allocation_times[allocation] = @elapsed allocation_map[allocation]()
             else
                 allocation_costs[allocation] = allocation_map[allocation]()
+            end
+            if return_time
+                allocation_times[allocation] = @elapsed allocation_map[allocation]()
             end
         end
     end

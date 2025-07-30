@@ -93,9 +93,7 @@ function load_data()
     # If there are missing price values, dominatingDirection is set to 0
     priceData[!, :DominatingDirection] = ifelse.(coalesce.(priceData[!, :ImbalanceSpreadEUR], 0.0) .> 0, 1,
                                                          ifelse.(coalesce.(priceData[!, :ImbalanceSpreadEUR], 0.0) .< 0, -1, 0))
-    println("missing DominatingDirection values: ", count(ismissing, priceData[!, :DominatingDirection]))
-    println("missing ImbalanceSpreadEUR values: ", count(ismissing, priceData[!, :ImbalanceSpreadEUR]))
-
+    
     priceData = select(priceData, [:HourUTC_datetime, :ImbalanceSpreadEUR, :DominatingDirection])
 
     # Merge price data with combined data

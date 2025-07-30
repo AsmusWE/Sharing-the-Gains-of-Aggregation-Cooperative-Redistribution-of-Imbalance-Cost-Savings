@@ -47,6 +47,8 @@ function plot_results(
     )
 
     skip_allocations = ["VCG", "VCG_budget_balanced", "nucleolus"]
+    # Filter allocations to exclude skipped allocations
+    allocations = filter(x -> x in allocations && !(x in skip_allocations), keys(allocation_costs))
 
     # CVaR per MWh
     cost_MWh = Dict()

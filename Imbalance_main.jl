@@ -22,7 +22,8 @@ Random.seed!(1) # Set seed for reproducibility
 systemData, clients, demandData = load_data()
 firstHour = minimum(systemData["price_prod_demand_df"][!, :HourUTC_datetime])
 lastHour = maximum(systemData["price_prod_demand_df"][!, :HourUTC_datetime])
-clients = filter(x -> !(x in ["X", "W", "N","F", "V", "J","T"]), clients)
+# Filter out smallest clients if using nucleolus
+#clients = filter(x -> !(x in ["X", "W", "N","F", "V", "J","T"]), clients)
 coalitions = collect(combinations(clients))
 
 # First hour 2025-03-04T12:00:00
@@ -67,14 +68,14 @@ demandData = set_period!(demandData, start_hour, sim_days)
 
 allocations = [
     "shapley",
-    "VCG",
-    "VCG_budget_balanced",
+    #"VCG",
+    #"VCG_budget_balanced",
     "gately",
     #"gately_daily",
     "gately_interval",
     "full_cost",
     "reduced_cost",
-    "nucleolus",
+    #"nucleolus",
     #"equal_share",
     "flat_rate"
 ]
@@ -165,10 +166,37 @@ allocations = filter(x -> x != "nucleolus", allocations)
 println("Calculating allocations for daily plot...")
 daily_cost_MWh_imbalance, allocation_costs, imbalances, hourly_imbalances, allocation_costs_daily_ratio = @time allocation_variance(allocations, clients, systemData, stochasticData, demandData, start_hour, sim_days)
 
+plotClient = "V"
 
-plotClient = "Y"
+# Define a struct to hold variance plot data
+struct VariancePlotData
+    allocations::Vector{String}
+    allocation_costs::Dict{String, Any}
+    daily_cost_MWh_imbalance::Any
+    imbalances::Dict{Any, Any}
+    hourly_imbalances::Any
+    allocation_costs_daily_ratio::Any
+    clients::Vector{String}
+    sim_days::Int
+    plotClient::String
+end
 
+# Create an instance of VariancePlotData
+variance_plot_data = VariancePlotData(
+    allocations,
+    allocation_costs,
+    daily_cost_MWh_imbalance,
+    imbalances,
+    hourly_imbalances,
+    allocation_costs_daily_ratio,
+    clients,
+    sim_days,
+    plotClient
+)
 
+# Save variance plot data to the "Results" subfolder
+serialize("Results/variance_plot_data.jls", variance_plot_data)
+println("Variance plot data saved to Results/variance_plot_data.jls")
 
 plot_variance(
     allocations,

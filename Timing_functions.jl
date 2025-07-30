@@ -1,8 +1,8 @@
 # Import the required functions from imbalance_functions.jl
 include("imbalance_functions.jl")
 
-function calculate_CVaR_timing(systemData, coalitions, T, imbalance_spread, alpha)
-    # Calculate CVaR for specific coalitions
+function calculate_costs_timing(systemData, coalitions, stochasticData, T, imbalance_spread, dominantDirection)
+    # Calculate imbalance costs for specific coalitions
 
     # Get all unique clients from all coalitions
     all_clients = unique(vcat(coalitions...))
@@ -10,7 +10,7 @@ function calculate_CVaR_timing(systemData, coalitions, T, imbalance_spread, alph
     # Calculate bids for each individual client 
     individual_bids = Dict()
     for client in all_clients
-        individual_bids[client] = optimize_imbalance([client], systemData)
+        individual_bids[client] = optimize_imbalance([client], systemData, stochasticData)
     end
     
     # Pre-calculate actual demand and PV for each client
@@ -21,8 +21,10 @@ function calculate_CVaR_timing(systemData, coalitions, T, imbalance_spread, alph
         actual_pv_per_client[client] = systemData["price_prod_demand_df"][1:T, :SolarMWh] .* systemData["clientPVOwnership"][client]
     end
     
-    # Calculate CVaR for each coalition by summing individual components
-    cvar_dict = Dict()
+    # Calculate costs for each coalition by summing individual components
+    costs_dict = Dict()
+    abs_spread = abs.(imbalance_spread)  # Pre-compute absolute values
+    
     for coalition in coalitions
         # Sum bids for this coalition
         coalition_bids = sum(individual_bids[client] for client in coalition)
@@ -35,21 +37,23 @@ function calculate_CVaR_timing(systemData, coalitions, T, imbalance_spread, alph
         
         # Calculate actual imbalances
         actual_imbalances = get_imbalance(coalition_bids, coalition_pv, coalition_demand)
-        imbalance_costs = actual_imbalances .* imbalance_spread
         
-        # Calculate CVaR
-        n = length(imbalance_costs)
-        index = ceil(Int, n * alpha)  # Index for VaR
-        partialsort!(imbalance_costs, 1:index, rev=true)  # In-place partial sort
-        cvar_value = mean(imbalance_costs[1:index])  # Average of the highest alpha% of costs
+        # Calculate imbalance costs using the two-price system
+        total_cost = 0.0
+        for j in eachindex(dominantDirection)
+            imbalance_with_dir = actual_imbalances[j] * dominantDirection[j]
+            if imbalance_with_dir > 0
+                total_cost += imbalance_with_dir * abs_spread[j]
+            end
+        end
         
-        cvar_dict[coalition] = cvar_value
+        costs_dict[coalition] = total_cost
     end
     
-    return cvar_dict
+    return costs_dict
 end
 
-function CVaR_VCG(systemData, clients, startDay, days; alpha=0.05, printing=false)
+function costs_VCG(systemData, clients, startDay, days, stochasticData; printing=false)
     # VCG mechanism requires coalitions of size N-1 and N
     # N-1: all coalitions without one client (needed for VCG calculation)
     # N: the grand coalition (all clients together)
@@ -67,7 +71,7 @@ function CVaR_VCG(systemData, clients, startDay, days; alpha=0.05, printing=fals
     end
     
     if printing
-        println("CVaR_VCG: Calculating CVaR for $(length(relevant_coalitions)) coalitions")
+        println("costs_VCG: Calculating costs for $(length(relevant_coalitions)) coalitions")
         println("Coalition sizes: $(sort(unique([length(c) for c in relevant_coalitions])))")
     end
     
@@ -75,14 +79,15 @@ function CVaR_VCG(systemData, clients, startDay, days; alpha=0.05, printing=fals
     tempData = set_period!(systemData, startDay, days)
     T = size(tempData["price_prod_demand_df"], 1)
     imbalance_spread = tempData["price_prod_demand_df"][!, "ImbalanceSpreadEUR"]
+    dominantDirection = tempData["price_prod_demand_df"][!, "DominatingDirection"]
     
-    # Calculate CVaR for all relevant coalitions at once
-    cvar_dict = calculate_CVaR_timing(tempData, relevant_coalitions, T, imbalance_spread, alpha)
+    # Calculate costs for all relevant coalitions at once
+    costs_dict = calculate_costs_timing(tempData, relevant_coalitions, stochasticData, T, imbalance_spread, dominantDirection)
     GC.gc()  # Force garbage collection to free memory
-    return cvar_dict
+    return costs_dict
 end
 
-function CVaR_Gately(systemData, clients, startDay, days; alpha=0.05, printing=false)
+function costs_Gately(systemData, clients, startDay, days, stochasticData; printing=false)
     # Gately mechanism requires coalitions of size 1, N-1, and N
     # Size 1: individual clients (needed for Gately calculation)
     # Size N-1: all coalitions without one client
@@ -106,7 +111,7 @@ function CVaR_Gately(systemData, clients, startDay, days; alpha=0.05, printing=f
     end
     
     if printing
-        println("CVaR_Gately: Calculating CVaR for $(length(relevant_coalitions)) coalitions")
+        println("costs_Gately: Calculating costs for $(length(relevant_coalitions)) coalitions")
         println("Coalition sizes: $(sort(unique([length(c) for c in relevant_coalitions])))")
     end
     
@@ -114,9 +119,10 @@ function CVaR_Gately(systemData, clients, startDay, days; alpha=0.05, printing=f
     tempData = set_period!(systemData, startDay, days)
     T = size(tempData["price_prod_demand_df"], 1)
     imbalance_spread = tempData["price_prod_demand_df"][!, "ImbalanceSpreadEUR"]
+    dominantDirection = tempData["price_prod_demand_df"][!, "DominatingDirection"]
     
-    # Calculate CVaR for all relevant coalitions at once
-    cvar_dict = calculate_CVaR_timing(tempData, relevant_coalitions, T, imbalance_spread, alpha)
+    # Calculate costs for all relevant coalitions at once
+    costs_dict = calculate_costs_timing(tempData, relevant_coalitions, stochasticData, T, imbalance_spread, dominantDirection)
     GC.gc()  # Force garbage collection to free memory
-    return cvar_dict
+    return costs_dict
 end
