@@ -7,7 +7,7 @@ include("Data_import.jl")
 include("Scenario_creation.jl")
 include("imbalance_functions.jl")
 include("Game_theoretic_functions.jl")
-include("Plotting.jl")
+include("Plotting_functions.jl")
 include("Timing_functions.jl")
 
 # --- External Packages ---
@@ -113,13 +113,17 @@ grand_coalition = clients
 grand_coalition_Cost = coalitionCosts[grand_coalition]
 
 individual_Cost_sum = sum(coalitionCosts[[client]] for client in clients)
-VCG_cost = sum(values(allocation_costs["VCG"]))
+
+
 
 println("Grand coalition Cost: ", grand_coalition_Cost)
 println("Sum of individual client Cost: ", individual_Cost_sum)
 #println("Difference: ", grand_coalition_imbalance - individual_imbalance_sum)
-println("VCG cost: ", VCG_cost)
-println("VCG subsidies: ", grand_coalition_Cost - VCG_cost)
+if allocation_costs["VCG"] !== nothing
+    VCG_cost = sum(values(allocation_costs["VCG"]))
+    println("VCG cost: ", VCG_cost)
+    println("VCG subsidies: ", grand_coalition_Cost - VCG_cost)
+end
 
 # Define a struct to hold all relevant plotting data
 struct PlotData
@@ -145,7 +149,7 @@ plot_data = PlotData(
     0 # Placeholder for daily_cost_MWh_imbalance, as it is not calculated in this script
 )
 # Save plot_data to the "Results" subfolder
-serialize("Results/all_scens.jls", plot_data)
+serialize("Results/all_pvPerf.jls", plot_data)
 
 # Use the struct for plotting
 plot_results(
@@ -195,7 +199,7 @@ variance_plot_data = VariancePlotData(
 )
 
 # Save variance plot data to the "Results" subfolder
-serialize("Results/variance_plot_data.jls", variance_plot_data)
+serialize("Results/variance_plot_data_pvPerf.jls", variance_plot_data)
 println("Variance plot data saved to Results/variance_plot_data.jls")
 
 plot_variance(
