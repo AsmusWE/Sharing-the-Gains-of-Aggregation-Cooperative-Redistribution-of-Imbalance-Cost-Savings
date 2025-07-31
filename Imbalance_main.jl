@@ -23,7 +23,8 @@ systemData, clients, demandData = load_data()
 firstHour = minimum(systemData["price_prod_demand_df"][!, :HourUTC_datetime])
 lastHour = maximum(systemData["price_prod_demand_df"][!, :HourUTC_datetime])
 # Filter out smallest clients if using nucleolus
-#clients = filter(x -> !(x in ["X", "W", "N","F", "V", "J","T"]), clients)
+clients = filter(x -> !(x in ["X", "W", "N","F", "V", "J","T"]), clients)
+clients = filter(x -> !(x in ["O"]), clients)
 coalitions = collect(combinations(clients))
 
 # First hour 2025-03-04T12:00:00
@@ -37,13 +38,13 @@ println("Simulation period: ", start_hour, " to ", start_hour + Dates.Day(sim_da
 println("Number of simulation days: ", sim_days)
 num_scenarios_demand = 5
 num_scenarios_price = 30 # Number of scenarios for imbalance spread
-time_horizon = 1 * 96 # Sets the chunk size for the simulation and the length of the imbalance spread scenarios
-chunkSize = Int(time_horizon / 96) # Number of 15-minute intervals in each chunk
+spread_scens_length = 96 # Sets the length of the imbalance spread scenarios, will repeat after this if necessary
+chunkSize = 3 # Days processed at a time when calculating imbalance costs, adjust based on memory
 alpha = 0.05 # CVaR alpha level
 
 stochasticData = Dict(
     # Accepted forecast types: "perfect", "scenarios", "noise"
-    "pv_forecast" => "scenarios",
+    "pv_forecast" => "perfect",
     "demand_forecast" => "scenarios",
     # Set standard deviations in percent for noise
     # Adjusting so demand MAE is 7-10% and PV MAE is 22.5-25%
@@ -59,7 +60,7 @@ end
 if stochasticData["pv_forecast"] == "noise"
     stochasticData["pv_forecast_noise"] = generate_noise_forecast_PV(systemData, start_hour, sim_days)
 end
-stochasticData["imbalance_spread"] = generate_scenarios_imbalance_spread(systemData, start_hour, time_horizon; num_scenarios=num_scenarios_price)
+stochasticData["imbalance_spread"] = generate_scenarios_imbalance_spread(systemData, start_hour, spread_scens_length; num_scenarios=num_scenarios_price)
 stochasticData["dominantDirection01"] = generate_dominant_direction(stochasticData["imbalance_spread"])
 
 # Cut systemData and demandData to the simulation period
@@ -88,9 +89,8 @@ println("Calculating imbalance costs...")
 coalitionCosts, imbalances, imbalancesDict = @time imbalance_costs(systemData, clients, start_hour, sim_days, stochasticData; printing=true, chunkSize=chunkSize)
 
 # Checking MAE
-MAE_demand = calculate_MAE(systemData, stochasticData, clients, start_hour, sim_days; forecastType="demand")
-println("MAE Demand: ", MAE_demand)
-#println("MAE PV: ", MAE_pv)
+MAE = calculate_MAE(imbalancesDict, systemData, clients)
+println("MAE: ", MAE)
 
 # Calculating allocations
 println("Calculating allocations...")
@@ -149,7 +149,7 @@ plot_data = PlotData(
     0 # Placeholder for daily_cost_MWh_imbalance, as it is not calculated in this script
 )
 # Save plot_data to the "Results" subfolder
-serialize("Results/all_scens_temp.jls", plot_data)
+serialize("Results/all_temp.jls", plot_data)
 
 # Remove flat_rate allocation until it is fixed
 #allocations = filter(x -> x != "flat_rate", allocations)
@@ -159,15 +159,16 @@ allocations = filter(x -> x != "nucleolus", allocations)
 
 println("Calculating allocations for daily plot...")
 if false
-dailyCost, totalCost, totalImbalances, intervalImbalances = @time allocation_variance(allocations, clients, systemData, stochasticData, demandData, start_hour, sim_days)
+dailyCostAllocations, totalCostAllocations, totalImbalanceCosts, intervalImbalances, singletonCostsDaily = @time allocation_variance(allocations, clients, systemData, stochasticData, demandData, start_hour, sim_days)
 
 # Define a struct to hold variance plot data
 struct VariancePlotData
     allocations::Vector{String}
-    totalCost::Dict{String, Any}
-    dailyCost::Any
-    totalImbalances::Dict{Any, Any}
+    totalCostAllocations::Dict{String, Any}
+    dailyCostAllocations::Any
+    totalImbalanceCosts::Dict{Any, Any}
     intervalImbalances::Any
+    singletonCostsDaily::Any
     clients::Vector{String}
     sim_days::Int
 end
@@ -175,10 +176,11 @@ end
 # Create an instance of VariancePlotData
 variance_plot_data = VariancePlotData(
     allocations,
-    totalCost,
-    dailyCost,
-    totalImbalances,
+    totalCostAllocations,
+    dailyCostAllocations,
+    totalImbalanceCosts,
     intervalImbalances,
+    singletonCostsDaily,
     clients,
     sim_days
 )

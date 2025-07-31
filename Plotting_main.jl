@@ -1,4 +1,5 @@
 include("Plotting_functions.jl")
+include("Imbalance_functions.jl")
 
 using DataFrames, CSV, Dates
 
@@ -13,15 +14,26 @@ struct PlotData
     sim_days::Int
     daily_cost_MWh_imbalance::Any
 end
+#struct VariancePlotData
+#    allocations::Vector{String}
+#    totalCost::Dict{String, Any}
+#    dailyCost::Any
+#    totalImbalances::Dict{Any, Any}
+#    intervalImbalances::Any
+#    clients::Vector{String}
+#    sim_days::Int
+#end
 struct VariancePlotData
     allocations::Vector{String}
-    totalCost::Dict{String, Any}
-    dailyCost::Any
-    totalImbalances::Dict{Any, Any}
+    totalCostAllocations::Dict{String, Any}
+    dailyCostAllocations::Any
+    totalImbalanceCosts::Dict{Any, Any}
     intervalImbalances::Any
+    singletonCostsDaily::Any
     clients::Vector{String}
     sim_days::Int
 end
+
 allocation_labels = Dict(
         "shapley" => ("Shapley", :red),
         "VCG" => ("VCG", :yellow),
@@ -40,13 +52,12 @@ allocation_labels = Dict(
 #plotData = deserialize("Results/all_scens.jls")
 #plotData = deserialize("Results/all_perfectPV.jls")
 #plotData = deserialize("Results/all_scens_temp.jls")
-plotData = deserialize("Results/all_noiseDemand_perfectPV.jls")
+plotData = deserialize("Results/all_perfectPV.jls")
 
 # Sort clients by total demand (highest to lowest)
 total_demands = Dict(client => sum(plotData.systemData["price_prod_demand_df"][!, Symbol(client)]) for client in plotData.clients)
 sorted_clients_pairs = sort(collect(total_demands), by = x -> -x[2])  # Sort by demand descending
 clients_sorted = [client for (client, _) in sorted_clients_pairs]
-
 # Use the struct for plotting
 plot_results(
     plotData.allocations,
@@ -65,11 +76,12 @@ plot_cost_difference(
     plotData.systemData
 )
 
-plotDataVariance = deserialize("Results/variance_plot_data_scens_temp.jls")
-plotclient = "A"
+#plotDataVariance = deserialize("Results/variance_plot_data_scenarios_temp.jls")
+#plotclient = "A"
 #plot_variance(
 #    plotDataVariance.allocations,
 #    plotDataVariance.dailyCost,
+#    plotDataVariance.intervalImbalances,
 #    plotclient,
 #    plotDataVariance.sim_days,
 #    allocation_labels;

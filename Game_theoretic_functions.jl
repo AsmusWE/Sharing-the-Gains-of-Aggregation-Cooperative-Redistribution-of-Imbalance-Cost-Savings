@@ -86,8 +86,9 @@ function allocation_variance(
         end
     end
     allocation_costs = Dict(allocation => Dict(client => 0.0 for client in clients) for allocation in allocations)
-    imbalances = Dict(coalition => 0.0 for coalition in coalitions)
-    interval_imbalances = Dict(client => Float64[] for client in clients)
+    imbalanceCosts = Dict(coalition => 0.0 for coalition in coalitions)
+    intervalImbalances = Dict(client => Float64[] for client in clients)
+    singletonCostsDaily = Dict(client => Float64[] for client in clients)
 
     for day in 1:sim_days
         curr_interval = start_hour + Dates.Minute((day - 1) * intervals_per_day * 15)
@@ -110,6 +111,7 @@ function allocation_variance(
             alloc = daily_allocations[allocation]
             for client in clients
                 allocation_costs[allocation][client] += alloc[client]
+                push!(singletonCostsDaily[client], coalitionCosts_day[[client]])
                 # Scale allocations to cost per MWh total demand - avoid division by zero
                 if coalitionCosts_day[[client]] != 0.0
                     push!(allocation_costs_daily[(client, allocation)], alloc[client])
@@ -122,20 +124,20 @@ function allocation_variance(
             end
         end
         
-        # Accumulate imbalances and interval imbalances
-        for (coalition, imbalance) in coalitionCosts_day
+        # Accumulate total imbalance costs and interval imbalance costs
+        for (coalition, imbalanceCost) in coalitionCosts_day
             if haskey(imbalances, coalition)
-                imbalances[coalition] += imbalance
+                imbalanceCosts[coalition] += imbalanceCost
             end
         end
         for client in clients
             if haskey(imbalancesDict_day, [client])
-                append!(interval_imbalances[client], imbalancesDict_day[[client]])
+                append!(intervalImbalances[client], imbalancesDict_day[[client]])
             end
         end
     end
 
-    return allocation_costs_daily, allocation_costs, imbalances, interval_imbalances
+    return allocation_costs_daily, allocation_costs, imbalanceCosts, intervalImbalances, singletonCostsDaily
 end
 
 

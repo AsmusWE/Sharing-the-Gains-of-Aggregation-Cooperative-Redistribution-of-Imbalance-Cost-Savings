@@ -46,11 +46,16 @@ function optimize_imbalance(coalition, systemData, stochasticData)
     # Dominant direction is 0 or 1 here. 0 corresponds to -1 (need for upregulation) in the original dataset. 1 corresponds to +1 (need for downregulation)
     # Needs to be tied to spreadScenarios, pre-generated to speed up optimization
     dominantDirection = stochasticData["dominantDirection01"]
+    # If T longer than spreadScenarios, repeat the scenarios
+    if size(spreadScenarios, 2) < T
+        spreadScenarios = repeat(spreadScenarios, 1, ceil(Int, T / size(spreadScenarios, 2)))
+        dominantDirection = repeat(dominantDirection, 1, ceil(Int, T / size(dominantDirection, 2)))
+    end
     prod = pvProduction .* sum(clientPVOwnership)
     
     SDemand = length(demand[1,:])  # Number of demand scenarios
     probDemand = 1/SDemand
-    SSpread = length(spreadScenarios[1,:])  # Number of spread scenarios
+    SSpread = length(spreadScenarios[:,1])  # Number of spread scenarios
     probSpread = 1/SSpread
 
     # Set up optimization model
@@ -65,7 +70,7 @@ function optimize_imbalance(coalition, systemData, stochasticData)
     @variable(model, bid[1:T]) # Bid amount
 
     # Two-price objective
-    @objective(model, Min, probSpread * probDemand * sum(((dominantDirection[sSpread])*pos_imbal[t, s]*(spreadScenarios[sSpread]) + (1-dominantDirection[sSpread])*neg_imbal[t, s]*(-spreadScenarios[sSpread])) for t in 1:T for s in 1:SDemand for sSpread in 1:SSpread)) # Objective function
+    @objective(model, Min, probSpread * probDemand * sum(((dominantDirection[sSpread,t])*pos_imbal[t, s]*(spreadScenarios[sSpread,t]) + (1-dominantDirection[sSpread,t])*neg_imbal[t, s]*(-spreadScenarios[sSpread,t])) for t in 1:T for s in 1:SDemand for sSpread in 1:SSpread)) # Objective function
     #@objective(model, Min, probDemand * sum((pos_imbal[t, s] + neg_imbal[t, s]) for t in 1:T for s in 1:SDemand))
 
     @constraint(model, [t = 1:T, s = 1:SDemand],
@@ -239,13 +244,10 @@ function imbalance_costs(systemData, clients, startDay, days, stochasticData; pr
         total_cost = 0.0
         imbalance_row = view(period_interval_imbalance, i, :)
         
-        # Process each time interval individually
-        for j in eachindex(dominantDirection)
-            imbalance_with_dir = imbalance_row[j] * dominantDirection[j]
-            if imbalance_with_dir > 0
-                total_cost += imbalance_with_dir * abs_spread[j]
-            end
-        end
+        # Vectorized processing of all time intervals
+        imbalance_with_dir = imbalance_row .* dominantDirection
+        positive_imbalance = max.(imbalance_with_dir, 0)
+        total_cost = sum(positive_imbalance .* abs_spread)
         
         coalition_costs[coalition] = total_cost
         imbalanceDict[coalition] = imbalance_row
@@ -332,7 +334,19 @@ function calculate_cvar_values(coalitions, period_interval_imbalance, imbalance_
     return cvar_dict, imbalance_dict
 end
 
-function calculate_MAE(systemData, stochasticData, clients, start_interval, days; forecastType = "demand")
+function calculate_MAE(imbalancesDict, systemData, coalition)
+    # This function calculates the mean absolute error (MAE) of the model and divides by average demand
+    # It compares the imbalances with the demand in systemData
+
+    demand = sum(systemData["price_prod_demand_df"][!, client] for client in coalition)
+
+    MAE = sum(abs.(imbalancesDict[coalition]))/length(imbalancesDict[coalition])
+    percentMAE = MAE / (demand/length(imbalancesDict[coalition]))
+
+    return MAE
+end
+
+function calculate_MAE_old(systemData, stochasticData, clients, start_interval, days; forecastType = "demand")
     # Calculate the Mean Absolute Error (MAE) of the forecast
     # NOTE: CURRENTLY ONLY WORKING FOR DEMAND FORECASTS
     totalDemand = 0
