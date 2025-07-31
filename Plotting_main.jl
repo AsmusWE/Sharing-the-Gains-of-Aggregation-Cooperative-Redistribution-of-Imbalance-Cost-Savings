@@ -37,8 +37,10 @@ allocation_labels = Dict(
         "flat_rate" => ("Flat Rate", :cyan)
     )
 
-plotData = deserialize("Results/all_scens.jls")
+#plotData = deserialize("Results/all_scens.jls")
+#plotData = deserialize("Results/all_perfectPV.jls")
 #plotData = deserialize("Results/all_scens_temp.jls")
+plotData = deserialize("Results/all_noiseDemand_perfectPV.jls")
 
 # Sort clients by total demand (highest to lowest)
 total_demands = Dict(client => sum(plotData.systemData["price_prod_demand_df"][!, Symbol(client)]) for client in plotData.clients)

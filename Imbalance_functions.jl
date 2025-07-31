@@ -332,40 +332,54 @@ function calculate_cvar_values(coalitions, period_interval_imbalance, imbalance_
     return cvar_dict, imbalance_dict
 end
 
-function calculate_MAE(systemData, demandForecast, pvForecast, clients, start_interval, days)
-    # Calculate the Mean Absolute Error (MAE) of the demand forecast
+function calculate_MAE(systemData, stochasticData, clients, start_interval, days; forecastType = "demand")
+    # Calculate the Mean Absolute Error (MAE) of the forecast
+    # NOTE: CURRENTLY ONLY WORKING FOR DEMAND FORECASTS
     totalDemand = 0
-    tempData = set_period!(systemData, start_interval, days)
-    totalDemandInterval = zeros(size(tempData["price_prod_demand_df"], 1))
-    demandForecastType = tempData["demand_forecast"]
+    totalDemandInterval = zeros(size(systemData["price_prod_demand_df"], 1))
+    demandForecastType = stochasticData["demand_forecast"]
     for client in clients
         # Get the demand for the client
-        totalDemand += sum(tempData["price_prod_demand_df"][!, client])
-        totalDemandInterval += sum(tempData["price_prod_demand_df"][!, client], dims=2)
+        totalDemand += sum(systemData["price_prod_demand_df"][!, client])
+        totalDemandInterval .+= systemData["price_prod_demand_df"][!, client]
     end
     absDemandError = 0
+
+
     if demandForecastType == "scenarios"
         # Set the forecast as the median of the scenarios
-        absDemandError = sum(abs.(median(demandForecast, dims=2) .- totalDemandInterval))
+        demandForecast = median(get_demand_forecast(clients, stochasticData, systemData, size(systemData["price_prod_demand_df"], 1)), dims=2)
+        absDemandError = sum(abs.(demandForecast .- totalDemandInterval))
     else
+        # if the forecast is noise, the forecast is generated in the optimization
+        # apply noise to the actual demand to approximate the forecast
+        demandForecast = zeros(size(systemData["price_prod_demand_df"], 1))
+        for client in clients
+            demandForecast .+= get_demand_forecast([client], stochasticData, systemData, size(systemData["price_prod_demand_df"], 1))
+        end
         absDemandError = sum(abs.(demandForecast .- totalDemandInterval))
     end
+    
     println("Total demand: ", totalDemand)
     println("Total demand interval: ", sum(totalDemandInterval))
     println("Absolute demand error: ", absDemandError)
     MAE_Demand = absDemandError / totalDemand
 
     # Calculate the Mean Absolute Error (MAE) of the PV forecast
-    # PV production is scaled according to client PV ownership
-    clientPVOwnership = sum(tempData["clientPVOwnership"][c] for c in clients)
-    totalPV = sum(tempData["price_prod_demand_df"][!, "SolarMWh"])
-    totalPV = totalPV .* clientPVOwnership  # Scale by total PV ownership
-    totalPVInterval = sum(tempData["price_prod_demand_df"][!, "SolarMWh"], dims=2)
-    totalPVInterval = totalPVInterval .* clientPVOwnership  # Scale by total PV ownership
-    # PV forecast is always deterministic
-    absPVError = sum(abs.(pvForecast .- totalPVInterval))
-    MAE_PV = absPVError / totalPV
-    return MAE_Demand, MAE_PV
+    if forecastType == "pv"
+        # PV production is scaled according to client PV ownership
+        clientPVOwnership = sum(tempData["clientPVOwnership"][c] for c in clients)
+        totalPV = sum(tempData["price_prod_demand_df"][!, "SolarMWh"])
+        totalPV = totalPV .* clientPVOwnership  # Scale by total PV ownership
+        totalPVInterval = sum(tempData["price_prod_demand_df"][!, "SolarMWh"], dims=2)
+        totalPVInterval = totalPVInterval .* clientPVOwnership  # Scale by total PV ownership
+        # PV forecast is always deterministic
+        absPVError = sum(abs.(pvForecast .- totalPVInterval))
+        MAE_PV = absPVError / totalPV
+        return MAE_PV
+    else
+        return MAE_Demand
+    end
 end
 
 

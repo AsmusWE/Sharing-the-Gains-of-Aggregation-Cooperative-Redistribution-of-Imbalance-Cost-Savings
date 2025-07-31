@@ -43,9 +43,9 @@ alpha = 0.05 # CVaR alpha level
 
 stochasticData = Dict(
     # Accepted forecast types: "perfect", "scenarios", "noise"
-    "pv_forecast" => "perfect",
+    "pv_forecast" => "scenarios",
     "demand_forecast" => "scenarios",
-    # Set standard deviations for noise
+    # Set standard deviations in percent for noise
     # Adjusting so demand MAE is 7-10% and PV MAE is 22.5-25%
     # Note: PV forecast gives MAE of 22.5-25% using scenarios
     "demand_noise_std" => 0.17,
@@ -69,7 +69,7 @@ demandData = set_period!(demandData, start_hour, sim_days)
 allocations = [
     "shapley",
     #"VCG",
-    #"VCG_budget_balanced",
+    "VCG_budget_balanced",
     "gately",
     #"gately_daily",
     "gately_interval",
@@ -88,8 +88,8 @@ println("Calculating imbalance costs...")
 coalitionCosts, imbalances, imbalancesDict = @time imbalance_costs(systemData, clients, start_hour, sim_days, stochasticData; printing=true, chunkSize=chunkSize)
 
 # Checking MAE
-#MAE_demand, MAE_pv = calculate_MAE(systemData, demandForecast, pvForecast, clients, start_hour, sim_days)
-#println("MAE Demand: ", MAE_demand)
+MAE_demand = calculate_MAE(systemData, stochasticData, clients, start_hour, sim_days; forecastType="demand")
+println("MAE Demand: ", MAE_demand)
 #println("MAE PV: ", MAE_pv)
 
 # Calculating allocations
@@ -149,14 +149,16 @@ plot_data = PlotData(
     0 # Placeholder for daily_cost_MWh_imbalance, as it is not calculated in this script
 )
 # Save plot_data to the "Results" subfolder
-serialize("Results/all_perfectPV.jls", plot_data)
+serialize("Results/all_scens_temp.jls", plot_data)
 
 # Remove flat_rate allocation until it is fixed
 #allocations = filter(x -> x != "flat_rate", allocations)
 # Remove nucleolus allocation as it is too slow 
 allocations = filter(x -> x != "nucleolus", allocations)
-return # stop execution here to avoid calculating unused allocations
+
+
 println("Calculating allocations for daily plot...")
+if false
 dailyCost, totalCost, totalImbalances, intervalImbalances = @time allocation_variance(allocations, clients, systemData, stochasticData, demandData, start_hour, sim_days)
 
 # Define a struct to hold variance plot data
@@ -182,9 +184,9 @@ variance_plot_data = VariancePlotData(
 )
 
 # Save variance plot data to the "Results" subfolder
-serialize("Results/variance_plot_data_scens_temp.jls", variance_plot_data)
+serialize("Results/variance_plot_data_scenarios_temp.jls", variance_plot_data)
 
-
+end
 GC.gc() # Run garbage collection to free memory after processing
 
 

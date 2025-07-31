@@ -115,7 +115,7 @@ function plot_results(
     p_CVaRRatio = plot(
         title="Imbalance cost contribution vs individual cost",
         xlabel="Client",
-        ylabel="%",
+        ylabel="Relative cost [%]",
         xticks=(1:length(plotKeys), plotKeys),
         xrotation=45,
         ylim=(0, 105),
