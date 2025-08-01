@@ -23,8 +23,8 @@ systemData, clients, demandData = load_data()
 firstHour = minimum(systemData["price_prod_demand_df"][!, :HourUTC_datetime])
 lastHour = maximum(systemData["price_prod_demand_df"][!, :HourUTC_datetime])
 # Filter out smallest clients if using nucleolus
-clients = filter(x -> !(x in ["X", "W", "N","F", "V", "J","T"]), clients)
-clients = filter(x -> !(x in ["O"]), clients)
+#clients = filter(x -> !(x in ["X", "W", "N","F", "V", "J","T"]), clients)
+#clients = filter(x -> !(x in ["O"]), clients)
 coalitions = collect(combinations(clients))
 
 # First hour 2025-03-04T12:00:00
@@ -40,16 +40,15 @@ num_scenarios_demand = 5
 num_scenarios_price = 30 # Number of scenarios for imbalance spread
 spread_scens_length = 96 # Sets the length of the imbalance spread scenarios, will repeat after this if necessary
 chunkSize = 3 # Days processed at a time when calculating imbalance costs, adjust based on memory
-alpha = 0.05 # CVaR alpha level
 
 stochasticData = Dict(
     # Accepted forecast types: "perfect", "scenarios", "noise"
-    "pv_forecast" => "perfect",
+    "pv_forecast" => "scenarios",
     "demand_forecast" => "scenarios",
     # Set standard deviations in percent for noise
     # Adjusting so demand MAE is 7-10% and PV MAE is 22.5-25%
     # Note: PV forecast gives MAE of 22.5-25% using scenarios
-    "demand_noise_std" => 0.17,
+    "demand_noise_std" => 0.23,
     "pv_noise_std" => 0.32
 )
 
@@ -70,7 +69,7 @@ demandData = set_period!(demandData, start_hour, sim_days)
 allocations = [
     "shapley",
     #"VCG",
-    "VCG_budget_balanced",
+    #"VCG_budget_balanced",
     "gately",
     #"gately_daily",
     "gately_interval",
@@ -149,7 +148,7 @@ plot_data = PlotData(
     0 # Placeholder for daily_cost_MWh_imbalance, as it is not calculated in this script
 )
 # Save plot_data to the "Results" subfolder
-serialize("Results/all_temp.jls", plot_data)
+serialize("Results/all_scenarios.jls", plot_data)
 
 # Remove flat_rate allocation until it is fixed
 #allocations = filter(x -> x != "flat_rate", allocations)
@@ -158,7 +157,8 @@ allocations = filter(x -> x != "nucleolus", allocations)
 
 
 println("Calculating allocations for daily plot...")
-if false
+if true
+GC.gc() # Run garbage collection to free memory before processing
 dailyCostAllocations, totalCostAllocations, totalImbalanceCosts, intervalImbalances, singletonCostsDaily = @time allocation_variance(allocations, clients, systemData, stochasticData, demandData, start_hour, sim_days)
 
 # Define a struct to hold variance plot data
@@ -186,7 +186,7 @@ variance_plot_data = VariancePlotData(
 )
 
 # Save variance plot data to the "Results" subfolder
-serialize("Results/variance_plot_data_scenarios_temp.jls", variance_plot_data)
+serialize("Results/variance_plot_data_scenarios.jls", variance_plot_data)
 
 end
 GC.gc() # Run garbage collection to free memory after processing

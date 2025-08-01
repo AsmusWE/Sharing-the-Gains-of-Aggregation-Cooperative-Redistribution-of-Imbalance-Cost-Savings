@@ -97,9 +97,15 @@ function generate_scenarios_imbalance_spread(systemData, start_hour, scenario_le
 
     # Generate scenarios by randomly selecting consecutive sequences from the historical data
     for i in 1:num_scenarios
-        # Randomly select a starting index ensuring we have enough data for the full scenario length
+        # Randomly select a starting index that is a multiple of 96 (ensuring start at 00:00)
+        # and ensuring we have enough data for the full scenario length
         max_start_idx = data_length - scenario_length + 1
-        start_idx = rand(1:max_start_idx)
+        # Find the maximum multiple of 96 that is <= max_start_idx
+        max_start_multiple_96 = div(max_start_idx - 1, 96) * 96 + 1
+        # Randomly select from valid multiples of 96
+        num_valid_starts = div(max_start_multiple_96 - 1, 96) + 1
+        random_multiple = rand(0:num_valid_starts-1)
+        start_idx = random_multiple * 96 + 1
         scenarios[i, :] = imbalance_spread[start_idx:start_idx + scenario_length - 1]
     end
 

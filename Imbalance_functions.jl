@@ -341,7 +341,7 @@ function calculate_MAE(imbalancesDict, systemData, coalition)
     demand = sum(systemData["price_prod_demand_df"][!, client] for client in coalition)
 
     MAE = sum(abs.(imbalancesDict[coalition]))/length(imbalancesDict[coalition])
-    percentMAE = MAE / (demand/length(imbalancesDict[coalition]))
+    percentMAE = MAE / (sum(demand)/length(imbalancesDict[coalition]))
 
     return MAE
 end

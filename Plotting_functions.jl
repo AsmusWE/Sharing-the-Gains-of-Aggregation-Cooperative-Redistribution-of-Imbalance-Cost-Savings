@@ -43,14 +43,15 @@ function plot_results(
     yMax =maximum([maximum(cost_MWh[alloc][k] for k in plotKeys) for alloc in allocations if haskey(cost_MWh, alloc)])
     #yMin = minimum([minimum(cost_MWh[alloc][k] for k in plotKeys) for alloc in allocations if haskey(cost_MWh, alloc)])
     p_fees_MWh = plot(
-        title="Imbalance cost per MWh demand",
+        title="Imbalance cost per MWh demand, noise forecast, perfect PV forecast",
         xlabel="Client",
         ylabel="€/MWh",
         xticks=(1:length(plotKeys), plotKeys),
         xrotation=45,
-        legend=:topleft,
-        ylim = (0, yMax * 1.1)
-    ) 
+        legend=:topright,
+        ylim = (0, yMax * 1.1),
+        titlefont=font(10)  # Reduce title font size
+    )
     for alloc in allocations
         if haskey(cost_MWh, alloc)
             label, color = allocation_labels[alloc]
@@ -269,7 +270,8 @@ function plot_variance(
     plot_index = 1
     for alloc in filtered_allocations
         label, color = allocation_labels[alloc]
-        plotVals = daily_cost[(plot_client, alloc)]
+
+        plotVals = daily_cost[(plot_client, alloc)]./imbalances[[plot_client]]
         boxplot!(fill(plot_index, sim_days), plotVals; color=color, markerstrokecolor=:black, label=label, outliers=outliers)
         #mean_val_unweighted = sum(plotVals) / length(plotVals)
         #mean_val_weighted = allocation_costs[alloc][plot_client]/imbalances[[plot_client]]

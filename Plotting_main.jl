@@ -52,7 +52,8 @@ allocation_labels = Dict(
 #plotData = deserialize("Results/all_scens.jls")
 #plotData = deserialize("Results/all_perfectPV.jls")
 #plotData = deserialize("Results/all_scens_temp.jls")
-plotData = deserialize("Results/all_perfectPV.jls")
+#plotData = deserialize("Results/all_perfectPV.jls")
+plotData = deserialize("Results/all_noiseDemand_perfectPV.jls")
 
 # Sort clients by total demand (highest to lowest)
 total_demands = Dict(client => sum(plotData.systemData["price_prod_demand_df"][!, Symbol(client)]) for client in plotData.clients)
@@ -70,13 +71,13 @@ plot_results(
     allocation_labels
 )
 
-plot_cost_difference(
-    plotData.allocation_costs,
-    clients_sorted,
-    plotData.systemData
-)
+#plot_cost_difference(
+#    plotData.allocation_costs,
+#    clients_sorted,
+#    plotData.systemData
+#)
 
-#plotDataVariance = deserialize("Results/variance_plot_data_scenarios_temp.jls")
+#plotDataVariance = deserialize("Results/variance_plot_data_scens_temp.jls")
 #plotclient = "A"
 #plot_variance(
 #    plotDataVariance.allocations,
