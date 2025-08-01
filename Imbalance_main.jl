@@ -19,11 +19,15 @@ Random.seed!(1) # Set seed for reproducibility
 # =========================
 # 1. Data Loading & Setup
 # =========================
+fullPlot = false # Should the full plot be generated?
+dailyPlot = true # Should the daily plot be generated?
+
 systemData, clients, demandData = load_data()
 firstHour = minimum(systemData["price_prod_demand_df"][!, :HourUTC_datetime])
 lastHour = maximum(systemData["price_prod_demand_df"][!, :HourUTC_datetime])
 # Filter out smallest clients if using nucleolus
 #clients = filter(x -> !(x in ["X", "W", "N","F", "V", "J","T"]), clients)
+#clients = filter(x -> !(x in ["X", "W", "N","F", "V", "J", "P", "M", "D"]), clients)
 #clients = filter(x -> !(x in ["O"]), clients)
 coalitions = collect(combinations(clients))
 
@@ -43,7 +47,7 @@ chunkSize = 3 # Days processed at a time when calculating imbalance costs, adjus
 
 stochasticData = Dict(
     # Accepted forecast types: "perfect", "scenarios", "noise"
-    "pv_forecast" => "scenarios",
+    "pv_forecast" => "perfect",
     "demand_forecast" => "scenarios",
     # Set standard deviations in percent for noise
     # Adjusting so demand MAE is 7-10% and PV MAE is 22.5-25%
@@ -83,110 +87,112 @@ allocations = [
 # =========================
 # 2. Imbalance Calculation and allocation
 # =========================
-# Calculating costs
-println("Calculating imbalance costs...")
-coalitionCosts, imbalances, imbalancesDict = @time imbalance_costs(systemData, clients, start_hour, sim_days, stochasticData; printing=true, chunkSize=chunkSize)
+if fullPlot
+    # Calculating costs
+    println("Calculating imbalance costs...")
+    coalitionCosts, imbalances, imbalancesDict = @time imbalance_costs(systemData, clients, start_hour, sim_days, stochasticData; printing=true, chunkSize=chunkSize)
 
-# Checking MAE
-MAE = calculate_MAE(imbalancesDict, systemData, clients)
-println("MAE: ", MAE)
+    # Checking MAE
+    MAE = calculate_MAE(imbalancesDict, systemData, clients)
+    println("MAE: ", MAE)
 
-# Calculating allocations
-println("Calculating allocations...")
-#daily_cost_MWh_imbalance, allocation_costs, imbalances, hourly_imbalances = @time allocation_variance(allocations, clients, coalitions, systemData, start_hour, sim_days)
+    # Calculating allocations
+    println("Calculating allocations...")
+    #daily_cost_MWh_imbalance, allocation_costs, imbalances, hourly_imbalances = @time allocation_variance(allocations, clients, coalitions, systemData, start_hour, sim_days)
 
-allocation_costs = calculate_allocations(
-    allocations, clients, coalitions, coalitionCosts, imbalances, imbalancesDict, systemData, demandData; printing = true
+    allocation_costs = calculate_allocations(
+        allocations, clients, coalitions, coalitionCosts, imbalances, imbalancesDict, systemData, demandData; printing = true
+        )
+
+    # Checking stability
+    max_instability = Dict{String, Float64}()
+    for alloc in allocations
+        println("Checking stability for allocation: ", alloc)
+        max_instability[alloc] = check_stability(allocation_costs[alloc], coalitionCosts, clients)
+    end
+    println("Max instabilities: ", max_instability)
+
+    # Compare the sum of individual client CVaR with the grand coalition CVaR
+    grand_coalition = clients
+    grand_coalition_Cost = coalitionCosts[grand_coalition]
+
+    individual_Cost_sum = sum(coalitionCosts[[client]] for client in clients)
+
+
+
+    println("Grand coalition Cost: ", grand_coalition_Cost)
+    println("Sum of individual client Cost: ", individual_Cost_sum)
+    #println("Difference: ", grand_coalition_imbalance - individual_imbalance_sum)
+    if "VCG" in allocations
+        VCG_cost = sum(values(allocation_costs["VCG"]))
+        println("VCG cost: ", VCG_cost)
+        println("VCG subsidies: ", grand_coalition_Cost - VCG_cost)
+    end
+
+    # Define a struct to hold all relevant plotting data
+    struct PlotData
+        allocations::Vector{String}
+        systemData::Dict{String, Any}
+        allocation_costs::Dict{String, Any}
+        imbalances::Dict{Any, Any}
+        clients::Vector{String}
+        start_hour::DateTime
+        sim_days::Int
+        daily_cost_MWh_imbalance::Any
+    end
+
+    # Create an instance of PlotData
+    plot_data = PlotData(
+        allocations,
+        systemData,
+        allocation_costs,
+        coalitionCosts,
+        clients,
+        start_hour,
+        sim_days,
+        0 # Placeholder for daily_cost_MWh_imbalance, as it is not calculated in this script
     )
-
-# Checking stability
-max_instability = Dict{String, Float64}()
-for alloc in allocations
-    println("Checking stability for allocation: ", alloc)
-    max_instability[alloc] = check_stability(allocation_costs[alloc], coalitionCosts, clients)
+    # Save plot_data to the "Results" subfolder
+    serialize("Results/temp.jls", plot_data)
 end
-println("Max instabilities: ", max_instability)
-
-# Compare the sum of individual client CVaR with the grand coalition CVaR
-grand_coalition = clients
-grand_coalition_Cost = coalitionCosts[grand_coalition]
-
-individual_Cost_sum = sum(coalitionCosts[[client]] for client in clients)
-
-
-
-println("Grand coalition Cost: ", grand_coalition_Cost)
-println("Sum of individual client Cost: ", individual_Cost_sum)
-#println("Difference: ", grand_coalition_imbalance - individual_imbalance_sum)
-if "VCG" in allocations
-    VCG_cost = sum(values(allocation_costs["VCG"]))
-    println("VCG cost: ", VCG_cost)
-    println("VCG subsidies: ", grand_coalition_Cost - VCG_cost)
-end
-
-# Define a struct to hold all relevant plotting data
-struct PlotData
-    allocations::Vector{String}
-    systemData::Dict{String, Any}
-    allocation_costs::Dict{String, Any}
-    imbalances::Dict{Any, Any}
-    clients::Vector{String}
-    start_hour::DateTime
-    sim_days::Int
-    daily_cost_MWh_imbalance::Any
-end
-
-# Create an instance of PlotData
-plot_data = PlotData(
-    allocations,
-    systemData,
-    allocation_costs,
-    coalitionCosts,
-    clients,
-    start_hour,
-    sim_days,
-    0 # Placeholder for daily_cost_MWh_imbalance, as it is not calculated in this script
-)
-# Save plot_data to the "Results" subfolder
-serialize("Results/all_scenarios.jls", plot_data)
-
 # Remove flat_rate allocation until it is fixed
 #allocations = filter(x -> x != "flat_rate", allocations)
 # Remove nucleolus allocation as it is too slow 
-allocations = filter(x -> x != "nucleolus", allocations)
+if dailyPlot
+    allocations = filter(x -> x != "nucleolus", allocations)
 
 
-println("Calculating allocations for daily plot...")
-if true
-GC.gc() # Run garbage collection to free memory before processing
-dailyCostAllocations, totalCostAllocations, totalImbalanceCosts, intervalImbalances, singletonCostsDaily = @time allocation_variance(allocations, clients, systemData, stochasticData, demandData, start_hour, sim_days)
+    println("Calculating allocations for daily plot...")
 
-# Define a struct to hold variance plot data
-struct VariancePlotData
-    allocations::Vector{String}
-    totalCostAllocations::Dict{String, Any}
-    dailyCostAllocations::Any
-    totalImbalanceCosts::Dict{Any, Any}
-    intervalImbalances::Any
-    singletonCostsDaily::Any
-    clients::Vector{String}
-    sim_days::Int
-end
+    GC.gc() # Run garbage collection to free memory before processing
+    dailyCostAllocations, totalCostAllocations, totalImbalanceCosts, intervalImbalances, singletonCostsDaily = @time allocation_variance(allocations, clients, systemData, stochasticData, demandData, start_hour, sim_days)
 
-# Create an instance of VariancePlotData
-variance_plot_data = VariancePlotData(
-    allocations,
-    totalCostAllocations,
-    dailyCostAllocations,
-    totalImbalanceCosts,
-    intervalImbalances,
-    singletonCostsDaily,
-    clients,
-    sim_days
-)
+    # Define a struct to hold variance plot data
+    struct VariancePlotData
+        allocations::Vector{String}
+        totalCostAllocations::Dict{String, Any}
+        dailyCostAllocations::Any
+        totalImbalanceCosts::Dict{Any, Any}
+        intervalImbalances::Any
+        singletonCostsDaily::Any
+        clients::Vector{String}
+        sim_days::Int
+    end
 
-# Save variance plot data to the "Results" subfolder
-serialize("Results/variance_plot_data_scenarios.jls", variance_plot_data)
+    # Create an instance of VariancePlotData
+    variance_plot_data = VariancePlotData(
+        allocations,
+        totalCostAllocations,
+        dailyCostAllocations,
+        totalImbalanceCosts,
+        intervalImbalances,
+        singletonCostsDaily,
+        clients,
+        sim_days
+    )
+
+    # Save variance plot data to the "Results" subfolder
+    serialize("Results/variance_plot_data_scenDemand_perfectPV.jls", variance_plot_data)
 
 end
 GC.gc() # Run garbage collection to free memory after processing

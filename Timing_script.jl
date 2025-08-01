@@ -7,7 +7,7 @@ include("Data_import.jl")
 include("Scenario_creation.jl")
 include("imbalance_functions.jl")
 include("Game_theoretic_functions.jl")
-include("Plotting.jl")
+include("Plotting_functions.jl")
 include("Timing_functions.jl")
 
 # --- External Packages ---
@@ -21,7 +21,7 @@ Random.seed!(1) # Set seed for reproducibility
 # =========================
 systemData, clients, demandData = load_data()
 # Filter out smallest clients if using nucleolus
-#clients = filter(x -> !(x in ["X", "W", "N","F", "V", "J"]), clients)
+#clients = filter(x -> !(x in ["X", "W", "N","F", "V", "J", "P", "M", "D"]), clients)
 coalitions = collect(combinations(clients))
 
 start_hour = DateTime(2025, 3, 6, 12, 0, 0)
@@ -163,7 +163,7 @@ for allocation in unique_allocations
 end
 
 # Save and display the plot
-savefig(p, "Results/timing_nonuc.svg")
+savefig(p, "Results/timing_all22.svg")
 display(p)
 
 

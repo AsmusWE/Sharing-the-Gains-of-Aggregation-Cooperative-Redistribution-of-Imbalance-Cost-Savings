@@ -48,9 +48,8 @@ function load_data()
     combinedData = innerjoin(combinedData, pv_forecast, on=:HourUTC_datetime)
 
     # --- Filter clients with missing data ---
-    missing_data_counts = Dict(client => count(ismissing, demand[:, client]) for client in clients)
+    missing_data_counts = Dict(client => count(ismissing, combinedData[:, client]) for client in clients)
     clients_without_missing_data = filter(client -> missing_data_counts[client] == 0, clients)
-
     # --- Filter combined data to include only clients without missing data ---
     combinedData = select(combinedData, Cols(:HourUTC_datetime, :SolarMWh, clients_without_missing_data..., :PVForecast))
     demand = select(demand, Cols(:HourUTC_datetime, :Z, clients_without_missing_data...))

@@ -106,12 +106,16 @@ function allocation_variance(
             allocations, clients, coalitions, coalitionCosts_day, imbalancesDict_day, imbalancesDict_day, tempSystemData, demandDF; printing = false
         )
         
+        # Store singleton costs
+        for client in clients
+            push!(singletonCostsDaily[client], coalitionCosts_day[[client]])
+        end
+        
         # Extracting allocations and adding them to total client allocation
         for allocation in allocations
             alloc = daily_allocations[allocation]
             for client in clients
                 allocation_costs[allocation][client] += alloc[client]
-                push!(singletonCostsDaily[client], coalitionCosts_day[[client]])
                 # Scale allocations to cost per MWh total demand - avoid division by zero
                 if coalitionCosts_day[[client]] != 0.0
                     push!(allocation_costs_daily[(client, allocation)], alloc[client])
@@ -126,14 +130,10 @@ function allocation_variance(
         
         # Accumulate total imbalance costs and interval imbalance costs
         for (coalition, imbalanceCost) in coalitionCosts_day
-            if haskey(imbalances, coalition)
-                imbalanceCosts[coalition] += imbalanceCost
-            end
+            imbalanceCosts[coalition] += imbalanceCost
         end
         for client in clients
-            if haskey(imbalancesDict_day, [client])
-                append!(intervalImbalances[client], imbalancesDict_day[[client]])
-            end
+            append!(intervalImbalances[client], imbalancesDict_day[[client]])
         end
     end
 
@@ -147,6 +147,15 @@ function shapley_value(clients, coalitions, imbalances)
     shapley_vals = Dict()
     for client in clients
         shapley_vals[client] = 0.0
+    end
+
+    # Precompute factorials to avoid repeated calculations
+    if n > 20
+        # Use BigInt for large factorials to avoid overflow
+        factorials = [factorial(big(i)) for i in 0:n]
+    else
+        # Use regular integers for smaller factorials (faster)
+        factorials = [factorial(i) for i in 0:n]
     end
 
     for (idx, i) in enumerate(clients)
@@ -163,7 +172,9 @@ function shapley_value(clients, coalitions, imbalances)
                 imbalance_without_i = imbalances[c_without_i]
             end
             # Calculate the Shapley value contribution for client i in coalition c
-            shapley_vals[i] += factorial(S - 1) * factorial(n - S) / factorial(n) * (imbalances[c] - imbalance_without_i)
+            # Use precomputed factorials
+            weight = factorials[S] * factorials[n - S + 1] / factorials[n + 1]
+            shapley_vals[i] += Float64(weight) * (imbalances[c] - imbalance_without_i)
         end
     end
     return shapley_vals

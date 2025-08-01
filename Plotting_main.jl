@@ -53,7 +53,8 @@ allocation_labels = Dict(
 #plotData = deserialize("Results/all_perfectPV.jls")
 #plotData = deserialize("Results/all_scens_temp.jls")
 #plotData = deserialize("Results/all_perfectPV.jls")
-plotData = deserialize("Results/all_noiseDemand_perfectPV.jls")
+#plotData = deserialize("Results/all_scenarios.jls")
+plotData = deserialize("Results/all_noiseDemand_scenPV.jls")
 
 # Sort clients by total demand (highest to lowest)
 total_demands = Dict(client => sum(plotData.systemData["price_prod_demand_df"][!, Symbol(client)]) for client in plotData.clients)
@@ -77,15 +78,21 @@ plot_results(
 #    plotData.systemData
 #)
 
-#plotDataVariance = deserialize("Results/variance_plot_data_scens_temp.jls")
-#plotclient = "A"
-#plot_variance(
-#    plotDataVariance.allocations,
-#    plotDataVariance.dailyCost,
-#    plotDataVariance.intervalImbalances,
-#    plotclient,
-#    plotDataVariance.sim_days,
-#    allocation_labels;
-#    outliers = false
-#)
-
+if false
+plotDataVariance = deserialize("Results/variance_plot_data_scenarios.jls")
+plotclient = "A"
+tempSingletonCosts = Dict{String, Vector{Float64}}()
+for client in plotDataVariance.clients
+    tempSingletonCosts[client] = plotDataVariance.singletonCostsDaily[client][1:6:end]
+end
+plot_variance(
+    plotDataVariance.allocations,
+    plotDataVariance.dailyCostAllocations,
+    #plotDataVariance.singletonCostsDaily[1:6:end],
+    tempSingletonCosts,
+    plotclient,
+    plotDataVariance.sim_days,
+    allocation_labels;
+    outliers = false
+)
+end

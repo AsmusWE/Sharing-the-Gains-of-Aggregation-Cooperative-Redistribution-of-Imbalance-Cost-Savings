@@ -1,4 +1,4 @@
-using Plots, Serialization, CSV, DataFrames
+using Plots, Serialization, CSV, DataFrames, StatsPlots
 
 function scale_distribution!(distribution, demand, clients)
     # Divide distribution factor by the sum of demand for each client
@@ -43,12 +43,12 @@ function plot_results(
     yMax =maximum([maximum(cost_MWh[alloc][k] for k in plotKeys) for alloc in allocations if haskey(cost_MWh, alloc)])
     #yMin = minimum([minimum(cost_MWh[alloc][k] for k in plotKeys) for alloc in allocations if haskey(cost_MWh, alloc)])
     p_fees_MWh = plot(
-        title="Imbalance cost per MWh demand, noise forecast, perfect PV forecast",
+        title="Imbalance cost per MWh demand",
         xlabel="Client",
         ylabel="€/MWh",
         xticks=(1:length(plotKeys), plotKeys),
         xrotation=45,
-        legend=:topright,
+        legend=:topleft,
         ylim = (0, yMax * 1.1),
         titlefont=font(10)  # Reduce title font size
     )
@@ -247,37 +247,41 @@ end
 function plot_variance(
     allocations,
     daily_cost,
+    singletonCosts,
     plot_client,
     sim_days,
     allocation_labels;
     outliers = true
 )
     # Allocations that should not be plotted
-    skip_allocations = ["gately", "VCG", "VCG_budget_balanced", "nucleolus", "flat_rate"]
+    skip_allocations = ["VCG", "VCG_budget_balanced", "nucleolus", "flat_rate"]
     
     # Filter allocations for x-axis labels
     filtered_allocations = [a for a in allocations if haskey(allocation_labels, a) && !(a in skip_allocations)]
     
     p_variance = plot(
-        title="Imbalance cost per day, client $plot_client",
+        title="Daily relative costs $plot_client",
         xlabel="Allocation",
-        ylabel="Imbalance cost per day [€/day]",
+        ylabel="Relative costs [%]",
         xticks=(1:length(filtered_allocations), [allocation_labels[a][1] for a in filtered_allocations]),
-        legend = :none,
+        legend = :bottomright,
         xrotation=0
     )
     
     plot_index = 1
+    weighted_mean_labeled = false
     for alloc in filtered_allocations
         label, color = allocation_labels[alloc]
 
-        plotVals = daily_cost[(plot_client, alloc)]./imbalances[[plot_client]]
-        boxplot!(fill(plot_index, sim_days), plotVals; color=color, markerstrokecolor=:black, label=label, outliers=outliers)
+        plotVals = daily_cost[(plot_client, alloc)]./singletonCosts[plot_client]
+        boxplot!(fill(plot_index, sim_days), plotVals; color=color, markerstrokecolor=:black, label=false, outliers=outliers)
         #mean_val_unweighted = sum(plotVals) / length(plotVals)
-        #mean_val_weighted = allocation_costs[alloc][plot_client]/imbalances[[plot_client]]
+        mean_val_weighted = sum(daily_cost[(plot_client, alloc)])/sum(singletonCosts[plot_client])
         #annotate!(plot_index, mean_val_unweighted, text(string(round(mean_val_unweighted, digits=4)), :black, :center, 8))
         # Add a blue line for the weighted mean
-        #plot!([plot_index-0.4, plot_index+0.4], [mean_val_weighted, mean_val_weighted], color=:blue, linewidth=2, label=false)
+        mean_label = weighted_mean_labeled ? false : "Weighted Mean"
+        plot!([plot_index-0.4, plot_index+0.4], [mean_val_weighted, mean_val_weighted], color=:blue, linewidth=2, label=mean_label)
+        weighted_mean_labeled = true
         plot_index += 1
     end
     display(p_variance)
@@ -335,4 +339,36 @@ function plot_cost_difference(allocation_costs, clients, systemData)
         legend=:none
     )
     display(p2)
+end
+
+function plot_imbalance(coalition, imbalances)
+    # Plots the imbalances for a given coalition 
+    intervals = length(imbalances[coalition[1]])
+    coalitionImbalance = zeros(intervals)
+    for client in coalition
+        coalitionImbalance .+= imbalances[client]
+    end
+    
+    # Sum 15-minute intervals into daily totals (96 intervals per day = 24 hours × 4 intervals per hour)
+    intervals_per_day = 96
+    num_days = div(intervals, intervals_per_day)
+    daily_imbalance = zeros(num_days)
+    
+    for day in 1:num_days
+        start_idx = (day - 1) * intervals_per_day + 1
+        end_idx = day * intervals_per_day
+        daily_imbalance[day] = sum(coalitionImbalance[start_idx:end_idx])
+    end
+    
+    p = plot(
+        1:num_days,
+        daily_imbalance,
+        title="Daily Imbalance for Coalition: $coalition",
+        xlabel="Days",
+        ylabel="Daily Imbalance [MWh]",
+        legend=:topright,
+        color=:red,
+        label="Imbalance"
+    )
+    display(p)
 end
