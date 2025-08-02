@@ -8,7 +8,6 @@ include("Scenario_creation.jl")
 include("imbalance_functions.jl")
 include("Game_theoretic_functions.jl")
 include("Plotting_functions.jl")
-include("Timing_functions.jl")
 
 # --- External Packages ---
 using Plots, Dates, Random, Combinatorics, StatsPlots, Serialization, DataFrames, LsqFit
@@ -21,7 +20,8 @@ Random.seed!(1) # Set seed for reproducibility
 # =========================
 systemData, clients, demandData = load_data()
 # Filter out smallest clients if using nucleolus
-#clients = filter(x -> !(x in ["X", "W", "N","F", "V", "J", "P", "M", "D"]), clients)
+clients = filter(x -> !(x in ["X", "W", "N","F", "V", "J", "P", "M", "D"]), clients)
+#clients = filter(x -> !(x in ["X", "W", "N","F", "V", "J"]), clients)
 coalitions = collect(combinations(clients))
 
 start_hour = DateTime(2025, 3, 6, 12, 0, 0)
@@ -61,17 +61,17 @@ systemData = set_period!(systemData, start_hour, sim_days)
 
 allocations = [
     "shapley",
-    #"VCG",
-    #"VCG_budget_balanced",
+    "VCG",
+    "VCG_budget_balanced",
     "gately",
     #"gately_daily",
     "gately_interval",
     "full_cost",
     "reduced_cost",
-    #"nucleolus",
+    "nucleolus",
     #"equal_share",
     #"cost_based",
-    "flat_rate"
+    #"flat_rate"
 ]
 
 # =========================
@@ -86,9 +86,10 @@ timing_df = DataFrame(
 
 # Do a first unsaved run to ensure the functions are compiled
 # Use a local scope to avoid polluting the global namespace
+println("Running initial unsaved timing run...")
 let
     coalitionCosts, imbalances, imbalancesDict = imbalance_costs(systemData, clients, start_hour, sim_days, stochasticData; printing=false)
-    costs_Gately(systemData, clients, start_hour, sim_days, stochasticData; printing=false)
+    costs_Gately(systemData, clients, sim_days, stochasticData; printing=false)
     calculate_allocations(
         allocations, clients, coalitions, coalitionCosts, imbalances, imbalancesDict, systemData, demandData; printing = false, return_time = true
     )
@@ -103,8 +104,8 @@ for i in 1:(length(clients)-1)
     
     # Time calculation time for different amounts of coalitions
     costs_full_time = @elapsed coalitionCosts, imbalances, imbalancesDict = imbalance_costs(systemData, current_clients, start_hour, sim_days, stochasticData; printing=false)
-    costs_Gately_time = @elapsed costs_Gately(systemData, current_clients, start_hour, sim_days, stochasticData; printing=false)
-    
+    costs_Gately(systemData, clients, sim_days, stochasticData; printing=false)
+    costs_Gately_time = @elapsed costs_Gately(systemData, current_clients, sim_days, stochasticData; printing=false)
     
     
     println("  Calculating allocations...")
@@ -130,7 +131,7 @@ p = plot(
     ylabel = "Computation Time (seconds)",
     title = "Computation Time for Allocations",
     legend = :topleft,
-    xticks = 1:19,
+    xticks = 1:22,
     #xlims = (1, 16),
     #yscale = :log10,
     #yticks = [10^0, 10^1, 10^2, 10^3, 10^4, 10^5]
@@ -139,7 +140,7 @@ p = plot(
 # Plot the data
 allocation_labels = Dict(
     "shapley" => ("Shapley", :red),
-    "VCG" => ("VCG", :yellow),
+    "VCG" => ("VCG", :darkblue),
     "VCG_budget_balanced" => ("VCG Budget Balanced", :orange),
     "gately" => ("Gately Point", :grey),
     #"gately_daily" => ("Gately Daily", :black),
@@ -163,7 +164,7 @@ for allocation in unique_allocations
 end
 
 # Save and display the plot
-savefig(p, "Results/timing_all22.svg")
+savefig(p, "Results/timing_all22svg")
 display(p)
 
 

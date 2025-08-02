@@ -8,7 +8,6 @@ include("Scenario_creation.jl")
 include("imbalance_functions.jl")
 include("Game_theoretic_functions.jl")
 include("Plotting_functions.jl")
-include("Timing_functions.jl")
 
 # --- External Packages ---
 using Plots, Dates, Random, Combinatorics, StatsPlots, Serialization
@@ -19,8 +18,9 @@ Random.seed!(1) # Set seed for reproducibility
 # =========================
 # 1. Data Loading & Setup
 # =========================
-fullPlot = false # Should the full plot be generated?
-dailyPlot = true # Should the daily plot be generated?
+fullPlotSimple = true # All days, only simple allocation
+fullPlot = false # All days, all allocations
+dailyPlot = false # Daily plot, all allocations
 
 systemData, clients, demandData = load_data()
 firstHour = minimum(systemData["price_prod_demand_df"][!, :HourUTC_datetime])
@@ -29,7 +29,6 @@ lastHour = maximum(systemData["price_prod_demand_df"][!, :HourUTC_datetime])
 #clients = filter(x -> !(x in ["X", "W", "N","F", "V", "J","T"]), clients)
 #clients = filter(x -> !(x in ["X", "W", "N","F", "V", "J", "P", "M", "D"]), clients)
 #clients = filter(x -> !(x in ["O"]), clients)
-coalitions = collect(combinations(clients))
 
 # First hour 2025-03-04T12:00:00
 # Last hour 2025-07-20T03:45:00
@@ -71,7 +70,7 @@ systemData = set_period!(systemData, start_hour, sim_days)
 demandData = set_period!(demandData, start_hour, sim_days)
 
 allocations = [
-    "shapley",
+    #"shapley",
     #"VCG",
     #"VCG_budget_balanced",
     "gately",
@@ -87,7 +86,21 @@ allocations = [
 # =========================
 # 2. Imbalance Calculation and allocation
 # =========================
+if fullPlotSimple
+    println("Calculating imbalance costs for full plot (simple)...")
+    coalitions = sparse_coalitions(clients)
+    coalitionCosts, imbalancesDict = @time calculate_costs_specific(
+        systemData, coalitions, stochasticData, sim_days
+    )
+    allocation_costs = calculate_allocations(
+        allocations, clients, coalitions, coalitionCosts, nothing, imbalancesDict, systemData, demandData; printing = true
+    )
+    println("Total costs calculated for all coalitions.")
+    println("Allocation costs: ", allocation_costs)
+
+end
 if fullPlot
+    coalitions = collect(combinations(clients))
     # Calculating costs
     println("Calculating imbalance costs...")
     coalitionCosts, imbalances, imbalancesDict = @time imbalance_costs(systemData, clients, start_hour, sim_days, stochasticData; printing=true, chunkSize=chunkSize)
