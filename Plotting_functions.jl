@@ -14,7 +14,7 @@ function plot_results(
     systemData,
     allocation_costs,
     #bids,
-    coalitionCVaR,
+    coalitionCost,
     clients,
     start_hour,
     sim_days,
@@ -33,7 +33,7 @@ function plot_results(
     # Filter allocations to exclude skipped allocations
     allocations = filter(x -> x in allocations && !(x in skip_allocations), keys(allocation_costs))
 
-    # CVaR per MWh
+    # Cost per MWh
     cost_MWh = Dict()
     for alloc in allocations
         if haskey(allocation_costs, alloc)
@@ -43,12 +43,12 @@ function plot_results(
     yMax =maximum([maximum(cost_MWh[alloc][k] for k in plotKeys) for alloc in allocations if haskey(cost_MWh, alloc)])
     #yMin = minimum([minimum(cost_MWh[alloc][k] for k in plotKeys) for alloc in allocations if haskey(cost_MWh, alloc)])
     p_fees_MWh = plot(
-        title="Imbalance cost per MWh demand",
+        title="Imbalance cost per MWh demand\n Noise Demand Forecast, Perfect PV Forecast",
         xlabel="Client",
         ylabel="€/MWh",
         xticks=(1:length(plotKeys), plotKeys),
         xrotation=45,
-        legend=:topleft,
+        legend=:topright,
         ylim = (0, yMax * 1.1),
         titlefont=font(10)  # Reduce title font size
     )
@@ -61,7 +61,7 @@ function plot_results(
     end
     display(p_fees_MWh)
 
-    # Plot CVaR per MWh compared to percentage of demand covered by PV production
+    # Plot Cost per MWh compared to percentage of demand covered by PV production
     pv_coverage_ratio = Dict()
     for client in plotKeys
         total_demand = sum(dayData["price_prod_demand_df"][!, Symbol(client)])
@@ -69,7 +69,7 @@ function plot_results(
         pv_coverage_ratio[client] = (total_pv_for_client / total_demand) * 100  # Convert to percentage
     end
     
-    p_cvar_vs_pv = plot(
+    p_Cost_vs_pv = plot(
         title="Imbalance cost per MWh vs PV Coverage",
         xlabel="PV Coverage of Demand [%]",
         ylabel="€/MWh",
@@ -82,12 +82,12 @@ function plot_results(
             label, color = allocation_labels[alloc]
             x_vals = [pv_coverage_ratio[k] for k in plotKeys]
             y_vals = [cost_MWh[alloc][k] for k in plotKeys]
-            scatter!(p_cvar_vs_pv, x_vals, y_vals, label=label, color=color, alpha=0.7)
+            scatter!(p_Cost_vs_pv, x_vals, y_vals, label=label, color=color, alpha=0.7)
         end
     end
-    display(p_cvar_vs_pv)
+    display(p_Cost_vs_pv)
 
-    # Total CVaR
+    # Total Cost
     p_fees_total = plot(title="Total imbalance cost per client", xlabel="Client", ylabel="€", xticks=(1:length(plotKeys), plotKeys), xrotation=45, legend=:topright)
     for alloc in allocations
         if haskey(allocation_costs, alloc)
@@ -98,41 +98,41 @@ function plot_results(
     end
     display(p_fees_total)
 
-    # CVaR contribution vs individual CVaR
-    CVaRRatio = Dict{String, Dict{String, Float64}}()
+    # Cost contribution vs individual Cost
+    CostRatio = Dict{String, Dict{String, Float64}}()
     for alloc in allocations
         if haskey(allocation_costs, alloc)
-            CVaRRatio[alloc] = Dict{String, Float64}()
+            CostRatio[alloc] = Dict{String, Float64}()
             for client in plotKeys
-                CVaRRatio[alloc][client] = allocation_costs[alloc][client] / coalitionCVaR[[client]]
+                CostRatio[alloc][client] = allocation_costs[alloc][client] / coalitionCost[[client]]
                 # Convert to percentage
-                CVaRRatio[alloc][client] = CVaRRatio[alloc][client] * 100
+                CostRatio[alloc][client] = CostRatio[alloc][client] * 100
             end
         end
     end
 
     #min_val = minimum([cost_imbalance[alloc][k] for alloc in allocations if haskey(cost_imbalance, alloc) for k in plotKeys])
     #lower_ylim = min(0.0, min_val - 0.05)  # Add a small margin below min_val, but not above 0
-    p_CVaRRatio = plot(
+    p_CostRatio = plot(
         title="Imbalance cost contribution vs individual cost",
         xlabel="Client",
         ylabel="Relative cost [%]",
         xticks=(1:length(plotKeys), plotKeys),
         xrotation=45,
         ylim=(0, 105),
-        legend=:outertopright
+        legend=:bottomleft
     )
     for alloc in allocations
-        if haskey(CVaRRatio, alloc)
+        if haskey(CostRatio, alloc)
             label, color = allocation_labels[alloc]
-            plotVals = [CVaRRatio[alloc][k] for k in plotKeys]
-            scatter!(p_CVaRRatio, 1:length(plotKeys), plotVals, label=label, color=color)
+            plotVals = [CostRatio[alloc][k] for k in plotKeys]
+            scatter!(p_CostRatio, 1:length(plotKeys), plotVals, label=label, color=color)
         end
     end
-    display(p_CVaRRatio)
+    display(p_CostRatio)
 
-    # Plot CVaRRatio vs PV Coverage
-    p_cvar_ratio_vs_pv = plot(
+    # Plot CostRatio vs PV Coverage
+    p_Cost_ratio_vs_pv = plot(
         title="Contribution/individual Ratio vs PV Coverage",
         xlabel="PV Coverage of Demand [%]",
         ylabel="%",
@@ -141,14 +141,14 @@ function plot_results(
     )
     
     for alloc in allocations
-        if haskey(CVaRRatio, alloc)
+        if haskey(CostRatio, alloc)
             label, color = allocation_labels[alloc]
             x_vals = [pv_coverage_ratio[k] for k in plotKeys]
-            y_vals = [CVaRRatio[alloc][k] for k in plotKeys]
-            scatter!(p_cvar_ratio_vs_pv, x_vals, y_vals, label=label, color=color, alpha=0.7)
+            y_vals = [CostRatio[alloc][k] for k in plotKeys]
+            scatter!(p_Cost_ratio_vs_pv, x_vals, y_vals, label=label, color=color, alpha=0.7)
         end
     end
-    display(p_cvar_ratio_vs_pv)
+    display(p_Cost_ratio_vs_pv)
 
     # Plot aggregate demand, PV production, bids, and imbalance
     #p_aggregate = plot(title="Aggregate Demand, PV Production, Bids, and Imbalance", xlabel="Hour", ylabel="Value")

@@ -397,8 +397,9 @@ function calculate_MAE_old(systemData, stochasticData, clients, start_interval, 
 end
 
 
-function calculate_costs_specific(systemData, coalitions, stochasticData, T)
+function calculate_costs_specific(systemData, coalitions, stochasticData, simDays)
     # Calculate imbalance costs for specific coalitions
+    T = simDays * 96 
     imbalance_spread = systemData["price_prod_demand_df"][1:T, "ImbalanceSpreadEUR"]
     dominantDirection = systemData["price_prod_demand_df"][1:T, "DominatingDirection"]
     # Get all clients
@@ -523,6 +524,7 @@ function costs_Gately(systemData, clients, simDays, stochasticData; printing=fal
 end
 
 function sparse_coalitions(clients)
+    # Generates coalitions needed for Gately and simple mechanisms
     n = length(clients)
     relevant_coalitions = []
     
@@ -542,3 +544,5 @@ function sparse_coalitions(clients)
     end
     return relevant_coalitions
 end
+
+

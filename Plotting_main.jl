@@ -3,17 +3,27 @@ include("Imbalance_functions.jl")
 
 using DataFrames, CSV, Dates
 
-
-struct PlotData
-    allocations::Vector{String}
-    systemData::Dict{String, Any}
-    allocation_costs::Dict{String, Any}
-    imbalances::Dict{Any, Any}
-    clients::Vector{String}
-    start_hour::DateTime
-    sim_days::Int
-    daily_cost_MWh_imbalance::Any
+struct SimplePlotData
+        allocations::Vector{String}
+        systemData::Dict{String, Any}
+        allocationCosts::Dict{String, Any}
+        coalitionCosts::Dict{Any, Any}
+        imbalancesDict::Dict{Any, Any}
+        clients::Vector{String}
+        start_hour::DateTime
+        sim_days::Int
 end
+
+#struct PlotData
+#    allocations::Vector{String}
+#    systemData::Dict{String, Any}
+#    allocation_costs::Dict{String, Any}
+#    imbalances::Dict{Any, Any}
+#    clients::Vector{String}
+#    start_hour::DateTime
+#    sim_days::Int
+#    daily_cost_MWh_imbalance::Any
+#end
 #struct VariancePlotData
 #    allocations::Vector{String}
 #    totalCost::Dict{String, Any}
@@ -35,26 +45,29 @@ struct VariancePlotData
 end
 
 allocation_labels = Dict(
-        "shapley" => ("Shapley", :red),
-        "VCG" => ("VCG", :yellow),
-        "VCG_budget_balanced" => ("VCG Budget Balanced", :orange),
-        "gately" => ("Gately Daily", :grey),
-        #"gately_daily" => ("Gately Daily", :black),
-        "gately_interval" => ("Gately 15Min", :lightgrey),
-        "full_cost" => ("Full Cost", :pink),
-        "reduced_cost" => ("Reduced Cost", :lightblue),
-        "nucleolus" => ("Nucleolus", :green),
-        "equal_share" => ("Equal Share", :purple),
-        #"cost_based" => ("Cost Based", :cyan),
-        "flat_rate" => ("Flat Rate", :cyan)
-    )
+    "shapley" => ("Shapley", :red),
+    "VCG" => ("VCG", :darkblue),
+    "VCG_budget_balanced" => ("VCG Budget Balanced", :orange),
+    "gately" => ("Gately Point", :grey),
+    #"gately_daily" => ("Gately Daily", :black),
+    "gately_interval" => ("Gately 15Min interval", :lightgrey),
+    "full_cost" => ("Uniform Price", :pink),
+    "reduced_cost" => ("Reduced Cost", :yellow),
+    "nucleolus" => ("Nucleolus", :green),
+    #"equal_share" => ("Equal Share", :purple),
+    #"cost_based" => ("Cost Based", :cyan),
+    "flat_rate" => ("Flat Rate", :cyan)
+)
 
 #plotData = deserialize("Results/all_scens.jls")
 #plotData = deserialize("Results/all_perfectPV.jls")
 #plotData = deserialize("Results/all_scens_temp.jls")
 #plotData = deserialize("Results/all_perfectPV.jls")
 #plotData = deserialize("Results/all_scenarios.jls")
-plotData = deserialize("Results/all_noiseDemand_scenPV.jls")
+#plotData = deserialize("Results/all_noiseDemand_scenPV.jls")
+#plotData = deserialize("Results/simple_plot_scenPV_scenDemand.jls")
+#plotData = deserialize("Results/simple_plot_perfectPV_scenDemand.jls")
+plotData = deserialize("Results/simple_plot_perfectPV_noiseDemand.jls")
 
 # Sort clients by total demand (highest to lowest)
 total_demands = Dict(client => sum(plotData.systemData["price_prod_demand_df"][!, Symbol(client)]) for client in plotData.clients)
@@ -64,19 +77,19 @@ clients_sorted = [client for (client, _) in sorted_clients_pairs]
 plot_results(
     plotData.allocations,
     plotData.systemData,
-    plotData.allocation_costs,
-    plotData.imbalances,
+    plotData.allocationCosts,
+    plotData.coalitionCosts,
     clients_sorted,
     plotData.start_hour,
     plotData.sim_days,
     allocation_labels
 )
 
-#plot_cost_difference(
-#    plotData.allocation_costs,
-#    clients_sorted,
-#    plotData.systemData
-#)
+plot_cost_difference(
+    plotData.allocationCosts,
+    clients_sorted,
+    plotData.systemData
+)
 
 if false
 plotDataVariance = deserialize("Results/variance_plot_data_scenarios.jls")

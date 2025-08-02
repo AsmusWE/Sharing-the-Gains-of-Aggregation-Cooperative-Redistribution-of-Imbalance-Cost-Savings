@@ -47,11 +47,11 @@ chunkSize = 3 # Days processed at a time when calculating imbalance costs, adjus
 stochasticData = Dict(
     # Accepted forecast types: "perfect", "scenarios", "noise"
     "pv_forecast" => "perfect",
-    "demand_forecast" => "scenarios",
+    "demand_forecast" => "noise",
     # Set standard deviations in percent for noise
     # Adjusting so demand MAE is 7-10% and PV MAE is 22.5-25%
     # Note: PV forecast gives MAE of 22.5-25% using scenarios
-    "demand_noise_std" => 0.23,
+    "demand_noise_std" => 0.28,
     "pv_noise_std" => 0.32
 )
 
@@ -97,6 +97,36 @@ if fullPlotSimple
     )
     println("Total costs calculated for all coalitions.")
     println("Allocation costs: ", allocation_costs)
+
+    MAE = calculate_MAE(imbalancesDict, systemData, clients)
+    println("MAE: ", MAE)
+
+    # Define a struct to hold all relevant plotting data
+    struct SimplePlotData
+        allocations::Vector{String}
+        systemData::Dict{String, Any}
+        allocationCosts::Dict{String, Any}
+        coalitionCosts::Dict{Any, Any}
+        imbalancesDict::Dict{Any, Any}
+        clients::Vector{String}
+        start_hour::DateTime
+        sim_days::Int
+    end
+
+    # Create an instance of SimplePlotData
+    simple_plot_data = SimplePlotData(
+        allocations,
+        systemData,
+        allocation_costs,
+        coalitionCosts,
+        imbalancesDict,
+        clients,
+        start_hour,
+        sim_days
+    )
+
+    # Save simple_plot_data to the "Results" subfolder
+    serialize("Results/simple_plot_perfectPV_noiseDemand.jls", simple_plot_data)
 
 end
 if fullPlot
