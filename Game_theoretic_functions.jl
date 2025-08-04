@@ -204,7 +204,7 @@ function simple_VCG(clients, coalitionCosts)
         coalition_wo_client = filter(x -> x != client, grand_coalition)
         coalition_value_wo_client = coalitionCosts[coalition_wo_client]
         # Calculate the VCG value for the client
-        VCG_value = (grand_coalition_CVaR-coalition_value_wo_client)
+        VCG_value = (grand_coalition_CVaR - coalition_value_wo_client)
         # Store the VCG value in a dictionary
         utilities[client] = VCG_value
     end
@@ -215,15 +215,18 @@ function VCG_BB(clients, coalitionCosts)
     # This function calculates the VCG value for each client in the grand coalition
     # Handles budget balanced case by optimizing
     vcg_payments = simple_VCG(clients, coalitionCosts)
-
+    if sum(values(vcg_payments)) == coalitionCosts[clients]
+        # If the VCG payments are budget balanced, return them as is
+        return vcg_payments
+    end
     model = Model(HiGHS.Optimizer)
     set_silent(model)
 
     @variable(model, payment[clients])
     
     # Objective is to minimize the squared relative difference from VCG payments
-    @objective(model, Min, sum(((vcg_payments[client] - payment[client])/vcg_payments[client])^2 for client in clients))
-    
+    @objective(model, Min, sum(((vcg_payments[client] - payment[client])/(vcg_payments[client]))^2 for client in clients))
+
     # Constraint to ensure budget balance
     @constraint(model, sum(payment) == coalitionCosts[clients])
 
@@ -231,11 +234,16 @@ function VCG_BB(clients, coalitionCosts)
     @constraint(model, [client in clients],
                 payment[client] <= coalitionCosts[[client]]) # Payments must be lower than solo payment
 
-    optimize!(model)
+    # Constraint to ensure no one pays less than their utopian allocation
+    @constraint(model, [client in clients],
+                payment[client] >= vcg_payments[client]) 
 
+    optimize!(model)
+    
     if termination_status(model) != MOI.OPTIMAL
-        error("VCG budget balanced optimization failed: $(termination_status(model))")
+        error("VCG optimization failed: $(termination_status(model))")
     end
+
     optimized_payments = Dict{String, Float64}()
     for client in clients
         optimized_payments[client] = value(payment[client])

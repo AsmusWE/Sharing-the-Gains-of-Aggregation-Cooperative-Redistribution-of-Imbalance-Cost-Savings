@@ -18,19 +18,18 @@ Random.seed!(1) # Set seed for reproducibility
 # =========================
 # 1. Data Loading & Setup
 # =========================
-fullPlotSimple = true # All days, only simple allocation
-fullPlot = false # All days, all allocations
+fullPlotSimple = false # All days, only simple allocation
+fullPlot = true # All days, all allocations
 dailyPlot = false # Daily plot, all allocations
 
 systemData, clients, demandData = load_data()
 firstHour = minimum(systemData["price_prod_demand_df"][!, :HourUTC_datetime])
 lastHour = maximum(systemData["price_prod_demand_df"][!, :HourUTC_datetime])
 # Filter out smallest clients if using nucleolus
-#clients = filter(x -> !(x in ["X", "W", "N","F", "V", "J","T"]), clients)
+clients = filter(x -> !(x in ["X", "W", "N","F", "V", "J","T"]), clients)
 #clients = filter(x -> !(x in ["X", "W", "N","F", "V", "J", "P", "M", "D"]), clients)
 #clients = filter(x -> !(x in ["O"]), clients)
 
-# First hour 2025-03-04T12:00:00
 # Last hour 2025-07-20T03:45:00
 start_hour = DateTime(2025, 4, 04, 00, 0, 0)
 #start_hour = DateTime(2025, 3, 04, 12, 0, 0)
@@ -72,7 +71,8 @@ demandData = set_period!(demandData, start_hour, sim_days)
 allocations = [
     #"shapley",
     #"VCG",
-    #"VCG_budget_balanced",
+    "VCG_budget_balanced",
+    "VCG_budget_balanced_interval",
     "gately",
     #"gately_daily",
     "gately_interval",
@@ -126,7 +126,7 @@ if fullPlotSimple
     )
 
     # Save simple_plot_data to the "Results" subfolder
-    serialize("Results/simple_plot_perfectPV_noiseDemand.jls", simple_plot_data)
+    #serialize("Results/simple_plot_perfectPV_noiseDemand.jls", simple_plot_data)
 
 end
 if fullPlot
