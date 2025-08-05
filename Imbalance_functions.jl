@@ -6,6 +6,10 @@ using HiGHS
 using Combinatorics
 using Dates
 using Statistics
+using Gurobi
+
+# Define Gurobi environment, needed to supress outputs
+const GUROBI_ENV = Gurobi.Env()
 
 function get_demand_forecast(coalition, stochasticData, systemData, TimeHorizon)
     forecast_type = stochasticData["demand_forecast"]
@@ -59,8 +63,8 @@ function optimize_imbalance(coalition, systemData, stochasticData)
     probSpread = 1/SSpread
 
     # Set up optimization model
-    model = Model(HiGHS.Optimizer)
-    #model = Model(Gurobi.Optimizer)
+    #model = Model(HiGHS.Optimizer)
+    model = Model(()->Gurobi.Optimizer(GUROBI_ENV))
     #set_optimizer_attribute(model, "OutputFlag", 0)
     set_silent(model)
 

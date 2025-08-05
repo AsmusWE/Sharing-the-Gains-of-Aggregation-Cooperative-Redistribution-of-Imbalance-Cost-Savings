@@ -1,7 +1,7 @@
-using Combinatorics, HiGHS, JuMP#, Gurobi, NLsolve,
+using Combinatorics, HiGHS, JuMP, Gurobi#, NLsolve,
 # Initializing the Gurobi environment
 # This is necessary to surpress some of the Gurobi output
-#const GUROBI_ENV = Gurobi.Env()
+const GUROBI_ENV = Gurobi.Env()
 
 
 function calculate_allocations(
@@ -219,7 +219,8 @@ function VCG_BB(clients, coalitionCosts)
         # If the VCG payments are budget balanced, return them as is
         return vcg_payments
     end
-    model = Model(HiGHS.Optimizer)
+    model = Model(()->Gurobi.Optimizer(GUROBI_ENV)) # Use Gurobi for optimization
+    #set_optimizer_attribute(model, "OutputFlag", 0)
     set_silent(model)
 
     @variable(model, payment[clients])

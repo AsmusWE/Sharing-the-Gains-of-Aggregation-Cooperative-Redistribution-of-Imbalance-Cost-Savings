@@ -18,17 +18,17 @@ Random.seed!(1) # Set seed for reproducibility
 # =========================
 # 1. Data Loading & Setup
 # =========================
-fullPlotSimple = false # All days, only simple allocation
-fullPlot = true # All days, all allocations
+fullPlotSimple = true # All days, only simple allocation
+fullPlot = false # All days, all allocations
 dailyPlot = false # Daily plot, all allocations
 
 systemData, clients, demandData = load_data()
 firstHour = minimum(systemData["price_prod_demand_df"][!, :HourUTC_datetime])
 lastHour = maximum(systemData["price_prod_demand_df"][!, :HourUTC_datetime])
-# Filter out smallest clients if using nucleolus
-clients = filter(x -> !(x in ["X", "W", "N","F", "V", "J","T"]), clients)
-#clients = filter(x -> !(x in ["X", "W", "N","F", "V", "J", "P", "M", "D"]), clients)
-#clients = filter(x -> !(x in ["O"]), clients)
+# Filter out smallest clients for full plot all coalitions, down from 22 to 19
+#clients = filter(x -> !(x in ["X", "W", "N"]), clients)
+# Filter down to 12 for nucleolus
+#clients = filter(x -> !(x in ["F", "V", "J","E", "T", "O", "Y"]), clients)
 
 # Last hour 2025-07-20T03:45:00
 start_hour = DateTime(2025, 4, 04, 00, 0, 0)
@@ -45,8 +45,8 @@ chunkSize = 3 # Days processed at a time when calculating imbalance costs, adjus
 
 stochasticData = Dict(
     # Accepted forecast types: "perfect", "scenarios", "noise"
-    "pv_forecast" => "perfect",
-    "demand_forecast" => "noise",
+    "pv_forecast" => "scenarios",
+    "demand_forecast" => "scenarios",
     # Set standard deviations in percent for noise
     # Adjusting so demand MAE is 7-10% and PV MAE is 22.5-25%
     # Note: PV forecast gives MAE of 22.5-25% using scenarios
@@ -69,17 +69,15 @@ systemData = set_period!(systemData, start_hour, sim_days)
 demandData = set_period!(demandData, start_hour, sim_days)
 
 allocations = [
-    #"shapley",
-    #"VCG",
+    "shapley",
+    "VCG",
     "VCG_budget_balanced",
-    "VCG_budget_balanced_interval",
     "gately",
     #"gately_daily",
     "gately_interval",
     "full_cost",
     "reduced_cost",
     #"nucleolus",
-    #"equal_share",
     "flat_rate"
 ]
 
@@ -87,6 +85,8 @@ allocations = [
 # 2. Imbalance Calculation and allocation
 # =========================
 if fullPlotSimple
+    # Remove complex allocations for simple plot
+    allocations = filter(x -> !(x in ["shapley", "nucleolus"]), allocations)
     println("Calculating imbalance costs for full plot (simple)...")
     coalitions = sparse_coalitions(clients)
     coalitionCosts, imbalancesDict = @time calculate_costs_specific(
@@ -96,7 +96,7 @@ if fullPlotSimple
         allocations, clients, coalitions, coalitionCosts, nothing, imbalancesDict, systemData, demandData; printing = true
     )
     println("Total costs calculated for all coalitions.")
-    println("Allocation costs: ", allocation_costs)
+    #println("Allocation costs: ", allocation_costs)
 
     MAE = calculate_MAE(imbalancesDict, systemData, clients)
     println("MAE: ", MAE)
@@ -126,7 +126,7 @@ if fullPlotSimple
     )
 
     # Save simple_plot_data to the "Results" subfolder
-    #serialize("Results/simple_plot_perfectPV_noiseDemand.jls", simple_plot_data)
+    #serialize("Results/simple_plot_scenPV_scenDemand.jls", simple_plot_data)
 
 end
 if fullPlot
@@ -196,7 +196,7 @@ if fullPlot
         0 # Placeholder for daily_cost_MWh_imbalance, as it is not calculated in this script
     )
     # Save plot_data to the "Results" subfolder
-    serialize("Results/temp.jls", plot_data)
+    serialize("Results/nuc_scenarios.jls", plot_data)
 end
 # Remove flat_rate allocation until it is fixed
 #allocations = filter(x -> x != "flat_rate", allocations)
@@ -235,7 +235,7 @@ if dailyPlot
     )
 
     # Save variance plot data to the "Results" subfolder
-    serialize("Results/variance_plot_data_scenDemand_perfectPV.jls", variance_plot_data)
+    serialize("Results/variance_plot_data_scenDemand_scenPV.jls", variance_plot_data)
 
 end
 GC.gc() # Run garbage collection to free memory after processing

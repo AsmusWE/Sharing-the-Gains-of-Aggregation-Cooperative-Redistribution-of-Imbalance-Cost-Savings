@@ -19,9 +19,9 @@ Random.seed!(1) # Set seed for reproducibility
 # 1. Data Loading & Setup
 # =========================
 systemData, clients, demandData = load_data()
-# Filter out smallest clients if using nucleolus
-clients = filter(x -> !(x in ["X", "W", "N","F", "V", "J", "P", "M", "D"]), clients)
-#clients = filter(x -> !(x in ["X", "W", "N","F", "V", "J"]), clients)
+# Filter down to 12 for nucleolus
+#clients = filter(x -> !(x in ["F", "V", "J","E", "T", "O", "Y","X", "W", "N"]), clients)
+#clients = filter(x -> !(x in ["X", "W", "N"]), clients)
 coalitions = collect(combinations(clients))
 
 start_hour = DateTime(2025, 3, 6, 12, 0, 0)
@@ -68,7 +68,7 @@ allocations = [
     "gately_interval",
     "full_cost",
     "reduced_cost",
-    "nucleolus",
+    #"nucleolus",
     #"equal_share",
     #"cost_based",
     #"flat_rate"
@@ -140,13 +140,13 @@ p = plot(
 # Plot the data
 allocation_labels = Dict(
     "shapley" => ("Shapley", :red),
-    "VCG" => ("VCG", :darkblue),
+    "VCG" => ("VCG", :purple),
     "VCG_budget_balanced" => ("VCG Budget Balanced", :orange),
     "gately" => ("Gately Point", :grey),
     #"gately_daily" => ("Gately Daily", :black),
     "gately_interval" => ("Gately 15Min interval", :lightgrey),
-    "full_cost" => ("Uniform Price", :pink),
-    "reduced_cost" => ("Reduced Cost", :yellow),
+    "full_cost" => ("Uniform Price", :yellow),
+    "reduced_cost" => ("Reduced Cost", :darkblue),
     "nucleolus" => ("Nucleolus", :green),
     #"equal_share" => ("Equal Share", :purple),
     #"cost_based" => ("Cost Based", :cyan),
@@ -164,7 +164,7 @@ for allocation in unique_allocations
 end
 
 # Save and display the plot
-savefig(p, "Results/timing_all22svg")
+savefig(p, "Results/timing_noNuc.svg")
 display(p)
 
 

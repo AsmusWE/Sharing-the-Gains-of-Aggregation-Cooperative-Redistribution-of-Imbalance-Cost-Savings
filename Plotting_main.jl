@@ -46,13 +46,13 @@ end
 
 allocation_labels = Dict(
     "shapley" => ("Shapley", :red),
-    "VCG" => ("VCG", :darkblue),
+    "VCG" => ("VCG", :purple),
     "VCG_budget_balanced" => ("VCG Budget Balanced", :orange),
     "gately" => ("Gately Point", :grey),
     #"gately_daily" => ("Gately Daily", :black),
     "gately_interval" => ("Gately 15Min interval", :lightgrey),
-    "full_cost" => ("Uniform Price", :pink),
-    "reduced_cost" => ("Reduced Cost", :yellow),
+    "full_cost" => ("Uniform Price", :yellow),
+    "reduced_cost" => ("Reduced Cost", :darkblue),
     "nucleolus" => ("Nucleolus", :green),
     #"equal_share" => ("Equal Share", :purple),
     #"cost_based" => ("Cost Based", :cyan),
@@ -65,9 +65,9 @@ allocation_labels = Dict(
 #plotData = deserialize("Results/all_perfectPV.jls")
 #plotData = deserialize("Results/all_scenarios.jls")
 #plotData = deserialize("Results/all_noiseDemand_scenPV.jls")
-#plotData = deserialize("Results/simple_plot_scenPV_scenDemand.jls")
+plotData = deserialize("Results/simple_plot_scenPV_scenDemand.jls")
 #plotData = deserialize("Results/simple_plot_perfectPV_scenDemand.jls")
-plotData = deserialize("Results/simple_plot_perfectPV_noiseDemand.jls")
+#plotData = deserialize("Results/simple_plot_perfectPV_noiseDemand.jls")
 
 # Sort clients by total demand (highest to lowest)
 total_demands = Dict(client => sum(plotData.systemData["price_prod_demand_df"][!, Symbol(client)]) for client in plotData.clients)
@@ -91,18 +91,14 @@ plot_cost_difference(
     plotData.systemData
 )
 
-if false
-plotDataVariance = deserialize("Results/variance_plot_data_scenarios.jls")
+if true
+plotDataVariance = deserialize("Results/variance_plot_data_scenDemand_scenPV.jls")
 plotclient = "A"
-tempSingletonCosts = Dict{String, Vector{Float64}}()
-for client in plotDataVariance.clients
-    tempSingletonCosts[client] = plotDataVariance.singletonCostsDaily[client][1:6:end]
-end
+
 plot_variance(
     plotDataVariance.allocations,
     plotDataVariance.dailyCostAllocations,
-    #plotDataVariance.singletonCostsDaily[1:6:end],
-    tempSingletonCosts,
+    plotDataVariance.singletonCostsDaily,
     plotclient,
     plotDataVariance.sim_days,
     allocation_labels;

@@ -29,7 +29,7 @@ function plot_results(
     # Use clients directly (sorting should be done in plotting_main)
     plotKeys = clients
 
-    skip_allocations = ["VCG", "VCG_budget_balanced", "nucleolus"]
+    skip_allocations = ["VCG", "nucleolus"]
     # Filter allocations to exclude skipped allocations
     allocations = filter(x -> x in allocations && !(x in skip_allocations), keys(allocation_costs))
 
@@ -43,12 +43,13 @@ function plot_results(
     yMax =maximum([maximum(cost_MWh[alloc][k] for k in plotKeys) for alloc in allocations if haskey(cost_MWh, alloc)])
     #yMin = minimum([minimum(cost_MWh[alloc][k] for k in plotKeys) for alloc in allocations if haskey(cost_MWh, alloc)])
     p_fees_MWh = plot(
-        title="Imbalance cost per MWh demand\n Noise Demand Forecast, Perfect PV Forecast",
+        #title="Imbalance cost per MWh demand\n Noise Demand Forecast, Perfect PV Forecast",
+        title="Imbalance cost per MWh demand",
         xlabel="Client",
         ylabel="€/MWh",
         xticks=(1:length(plotKeys), plotKeys),
         xrotation=45,
-        legend=:topright,
+        legend=:topleft,
         ylim = (0, yMax * 1.1),
         titlefont=font(10)  # Reduce title font size
     )
@@ -254,7 +255,7 @@ function plot_variance(
     outliers = true
 )
     # Allocations that should not be plotted
-    skip_allocations = ["VCG", "VCG_budget_balanced", "nucleolus", "flat_rate"]
+    skip_allocations = ["VCG", "VCG_budget_balanced", "nucleolus", "flat_rate", "shapley"]
     
     # Filter allocations for x-axis labels
     filtered_allocations = [a for a in allocations if haskey(allocation_labels, a) && !(a in skip_allocations)]
