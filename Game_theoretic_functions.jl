@@ -5,12 +5,12 @@ const GUROBI_ENV = Gurobi.Env()
 
 
 function calculate_allocations(
-    allocations, clients, coalitions, coalitionCosts, intervalImbalances, imbalancesDict,systemData, demandData; printing = true, return_time = false
+    allocations, clients, coalitionCosts, imbalancesDict,systemData, demandData; printing = true, return_time = false, alpha = 0.05
     )
     allocation_times = Dict{String, Float64}()
     allocation_costs = Dict{String, Any}()
     allocation_map = Dict(
-        "shapley" => () -> shapley_value(clients, coalitions, coalitionCosts),
+        "shapley" => () -> shapley_value(clients, coalitionCosts),
         #"VCG" => () -> VCG_tax(clients, coalitionCVaR, intervalImbalances, systemData; budget_balance=false),
         "VCG" => () -> simple_VCG(clients, coalitionCosts),
         "VCG_budget_balanced" => () -> VCG_BB(clients, coalitionCosts),
@@ -24,7 +24,9 @@ function calculate_allocations(
             deepcopy(nucleolus_values)
         end,
         "equal_share" => () -> deepcopy(equal_allocation(clients, coalitionCosts)),
-        "flat_rate" => () -> deepcopy(flat_rate_allocation(clients, coalitionCosts, demandData))
+        #"flat_rate" => () -> deepcopy(flat_rate_allocation(clients, coalitionCosts, demandData)),
+        "flat_rate" => () -> deepcopy(flat_rate_allocation(clients, coalitionCosts, systemData)),
+        "cost_based" => () -> deepcopy(cost_based_allocation(clients, imbalancesDict, systemData, alpha))
     )
     allocation_print_map = Dict(
         "shapley" => "Shapley calculation time:",
@@ -34,10 +36,11 @@ function calculate_allocations(
         #"gately_daily" => "Gately calculation time, daily:",
         "gately_interval" => "Gately calculation time, interval:",
         "full_cost" => "Full cost transfer calculation time:",
-        "reduced_cost" => "reduced cost calculation time:",
+        "reduced_cost" => "Reduced cost calculation time:",
         "nucleolus" => "Nucleolus calculation time:",
         "equal_share" => "Equal share calculation time:",
-        "flat_rate" => "Flat rate calculation time:"
+        "flat_rate" => "Flat rate calculation time:",
+        "cost_based" => "Cost based allocation calculation time:"
     )
     for allocation in allocations
         if haskey(allocation_map, allocation)
@@ -103,7 +106,7 @@ function allocation_variance(
 
 
         daily_allocations = calculate_allocations(
-            allocations, clients, coalitions, coalitionCosts_day, imbalancesDict_day, imbalancesDict_day, tempSystemData, demandDF; printing = false
+            allocations, clients, coalitionCosts_day, imbalancesDict_day, tempSystemData, demandDF; printing = false
         )
         
         # Store singleton costs
@@ -141,10 +144,11 @@ function allocation_variance(
 end
 
 
-function shapley_value(clients, coalitions, imbalances)
+function shapley_value(clients, imbalances)
     # This function calculates the Shapley value for each client in the grand coalition
     n = length(clients)
     shapley_vals = Dict()
+    coalitions = collect(combinations(clients))
     for client in clients
         shapley_vals[client] = 0.0
     end

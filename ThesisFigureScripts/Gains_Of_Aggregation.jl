@@ -128,26 +128,28 @@ end
 loadedData = deserialize("c:\\Users\\asmus\\OneDrive\\Dokumenter\\Uni\\Kandidat\\Speciale\\Git repository\\Control-and-revenue-distribution-of-shared-hybrid-PV-and-battery-systems\\Results\\all_scenarios.jls")
 coalitionCosts = loadedData.imbalances
 for i in 1:(length(filtered_clients))
-    # Calculate the average cost ratio for coalitions of size i
+    # Calculate the weighted average cost ratio for coalitions of size i
     coalitions_of_size_i = [coalition for coalition in keys(coalitionCosts) if length(coalition) == i]
-    cost_ratios_for_size_i = Float64[]
+    total_coalition_costs = 0.0
+    total_singleton_costs = 0.0
+    
     for coalition in coalitions_of_size_i
-        # Calculate sum of singleton costs for this coalition
+        # Sum coalition costs
+        total_coalition_costs += coalitionCosts[coalition]
+        # Sum singleton costs for this coalition
         singleton_sum = sum(coalitionCosts[[client]] for client in coalition)
-        # Calculate cost ratio
-        cost_ratio = coalitionCosts[coalition] / singleton_sum 
-        push!(cost_ratios_for_size_i, cost_ratio)
+        total_singleton_costs += singleton_sum
     end
     
-    # Store the average cost ratio for coalitions of size i
-    averageCostRatio[i] = sum(cost_ratios_for_size_i) / length(cost_ratios_for_size_i)
+    # Store the weighted average cost ratio for coalitions of size i
+    averageCostRatio[i] = total_coalition_costs / total_singleton_costs
 end
 
 
 plot(
     1:(length(filtered_clients)), averageCostRatio[1:(length(filtered_clients))]*100,
     xlabel="Number of Clients in Coalition",
-    ylabel="Cost Ratio [%]",
+    ylabel="Aggregated Cost / Singleton Cost [%]",
     xticks=1:(length(filtered_clients)),
     title="Cost Ratio vs Coalition Size",
     legend=false,

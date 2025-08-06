@@ -200,20 +200,15 @@ function prepare_chunk_data(systemData, stochasticData, start_idx, chunk_length,
 end
 
 
-function calculate_CVaR(systemData, clients, startDay, days; alpha=0.05, printing=false, chunkSize=14)
+function calculate_CVaR(systemData, clients, stochasticData; alpha=0.05, printing=false, chunkSize=14)
     # Validate inputs
     alpha > 0 && alpha < 1 || error("Alpha must be between 0 and 1, got $alpha")
     
-    # Set up time period
-    intervals_per_day = 96
-    intervals = days * intervals_per_day
-    tempData = create_time_period_data(systemData, startDay, intervals)
-    
     # Calculate imbalances for all coalitions
-    coalitions, period_interval_imbalance = chunk_imbalance(tempData, clients; printing=printing, chunksize=chunkSize)
+    coalitions, period_interval_imbalance = chunk_imbalance(systemData, clients, stochasticData; printing=printing, chunkSize=chunkSize)
     
     # Calculate CVaR for each coalition
-    imbalance_spread = tempData["price_prod_demand_df"][!, "ImbalanceSpreadEUR"]
+    imbalance_spread = systemData["price_prod_demand_df"][!, "ImbalanceSpreadEUR"]
     cvar_dict, imbalance_dict = calculate_cvar_values(coalitions, period_interval_imbalance, imbalance_spread, alpha)
     
     return cvar_dict, imbalance_dict
@@ -316,7 +311,7 @@ end
 function calculate_cvar_values(coalitions, period_interval_imbalance, imbalance_spread, alpha)
     n_coalitions = length(coalitions)
     intervals = size(period_interval_imbalance, 2)
-    var_index = ceil(Int, intervals * alpha)
+    var_index = ceil(Int, intervals * alpha) # Index for the Value at Risk (VaR) threshold
     
     # Pre-allocate results
     cvar_dict = Dict{Any, Float64}()
@@ -324,6 +319,9 @@ function calculate_cvar_values(coalitions, period_interval_imbalance, imbalance_
     sizehint!(cvar_dict, n_coalitions)
     sizehint!(imbalance_dict, n_coalitions)
     
+    n_coalitions = length(coalitions)
+    progress_interval = max(1, div(n_coalitions, 20))  # Print progress 20 times total
+
     for (i, coalition) in enumerate(coalitions)
         # Calculate costs and CVaR
         imbalance_costs = period_interval_imbalance[i, :] .* imbalance_spread
@@ -333,6 +331,12 @@ function calculate_cvar_values(coalitions, period_interval_imbalance, imbalance_
         # Store results
         cvar_dict[coalition] = cvar_value
         imbalance_dict[coalition] = view(period_interval_imbalance, i, :)
+
+        # Print progress at regular intervals
+        if i % progress_interval == 0 || i == n_coalitions
+            percentage = round(100 * i / n_coalitions, digits=1)
+            println("CVaR calculation progress: $i of $n_coalitions ($percentage%)")
+        end
     end
     
     return cvar_dict, imbalance_dict

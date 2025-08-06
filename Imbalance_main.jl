@@ -15,10 +15,23 @@ GC.gc() # Run garbage collection to free memory, useful for repeat runs
 
 Random.seed!(1) # Set seed for reproducibility
 
+# Define a struct to hold all relevant plotting data
+struct SimplePlotData
+    allocations::Vector{String}
+    systemData::Dict{String, Any}
+    allocationCosts::Dict{String, Any}
+    coalitionCosts::Dict{Any, Any}
+    imbalancesDict::Dict{Any, Any}
+    clients::Vector{String}
+    start_hour::DateTime
+    sim_days::Int
+end
+
 # =========================
 # 1. Data Loading & Setup
 # =========================
-fullPlotSimple = true # All days, only simple allocation
+CVaRFull = true # Full plot with all coalitions
+fullPlotSimple = false # All days, only simple allocation
 fullPlot = false # All days, all allocations
 dailyPlot = false # Daily plot, all allocations
 
@@ -26,7 +39,7 @@ systemData, clients, demandData = load_data()
 firstHour = minimum(systemData["price_prod_demand_df"][!, :HourUTC_datetime])
 lastHour = maximum(systemData["price_prod_demand_df"][!, :HourUTC_datetime])
 # Filter out smallest clients for full plot all coalitions, down from 22 to 19
-#clients = filter(x -> !(x in ["X", "W", "N"]), clients)
+clients = filter(x -> !(x in ["X", "W", "N"]), clients)
 # Filter down to 12 for nucleolus
 #clients = filter(x -> !(x in ["F", "V", "J","E", "T", "O", "Y"]), clients)
 
@@ -75,15 +88,54 @@ allocations = [
     "gately",
     #"gately_daily",
     "gately_interval",
-    "full_cost",
+    "full_cost", # Uniform price for cost
     "reduced_cost",
     #"nucleolus",
-    "flat_rate"
+    "flat_rate",
+    "cost_based" # Uniform price for CVaR
 ]
 
 # =========================
 # 2. Imbalance Calculation and allocation
 # =========================
+if CVaRFull
+    alphaCVaR = 0.05
+    # Remove allocation methods that are not suitable for CVaR yet
+    allocations = filter(x -> !(x in ["full_cost", "reduced_cost", "flat_rate", "gately_interval"]), allocations)
+    CVaRDict, imbalancesDict = @time calculate_CVaR(
+        systemData, clients, stochasticData; printing=true, chunkSize=chunkSize, alpha=alphaCVaR
+    )
+
+    allocation_costs = calculate_allocations(
+        allocations, clients, CVaRDict, imbalancesDict, systemData, demandData; printing = true, alpha=alphaCVaR
+    )
+
+    println("Checking stability for CVaR allocations...")
+    max_instability = Dict{String, Float64}()
+    for alloc in allocations
+        println("Checking stability for allocation: ", alloc)
+        max_instability[alloc] = check_stability(allocation_costs[alloc], CVaRDict, clients)
+    end
+    println("Max instabilities: ", max_instability)
+
+    println("Total CVaR: ", CVaRDict[clients])
+    println("VCG CVaR: ", sum(values(allocation_costs["VCG"])))
+
+    # Save CVaR data for plotting 
+    cvar_plot_data = SimplePlotData(
+        allocations,
+        systemData,
+        allocation_costs,
+        CVaRDict,
+        imbalancesDict,
+        clients,
+        start_hour,
+        sim_days
+    )
+
+
+    serialize("Results/CVaR_scenPV_scenDemand.jls", cvar_plot_data)
+end
 if fullPlotSimple
     # Remove complex allocations for simple plot
     allocations = filter(x -> !(x in ["shapley", "nucleolus"]), allocations)
@@ -93,25 +145,15 @@ if fullPlotSimple
         systemData, coalitions, stochasticData, sim_days
     )
     allocation_costs = calculate_allocations(
-        allocations, clients, coalitions, coalitionCosts, nothing, imbalancesDict, systemData, demandData; printing = true
+        allocations, clients, coalitionCosts, imbalancesDict, systemData, demandData; printing = true
     )
     println("Total costs calculated for all coalitions.")
     #println("Allocation costs: ", allocation_costs)
 
     MAE = calculate_MAE(imbalancesDict, systemData, clients)
     println("MAE: ", MAE)
-
-    # Define a struct to hold all relevant plotting data
-    struct SimplePlotData
-        allocations::Vector{String}
-        systemData::Dict{String, Any}
-        allocationCosts::Dict{String, Any}
-        coalitionCosts::Dict{Any, Any}
-        imbalancesDict::Dict{Any, Any}
-        clients::Vector{String}
-        start_hour::DateTime
-        sim_days::Int
-    end
+    println("Total coalition costs: ", coalitionCosts[clients])
+    println("Total singleton costs: ", sum(coalitionCosts[[client]] for client in clients))
 
     # Create an instance of SimplePlotData
     simple_plot_data = SimplePlotData(
