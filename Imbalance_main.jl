@@ -134,7 +134,7 @@ if CVaRFull
     )
 
 
-    serialize("Results/CVaR_scenPV_scenDemand.jls", cvar_plot_data)
+    #serialize("Results/CVaR_scenPV_scenDemand.jls", cvar_plot_data)
 end
 if fullPlotSimple
     # Remove complex allocations for simple plot
@@ -168,7 +168,7 @@ if fullPlotSimple
     )
 
     # Save simple_plot_data to the "Results" subfolder
-    #serialize("Results/simple_plot_scenPV_scenDemand.jls", simple_plot_data)
+    serialize("Results/simple_plot_scenPV_scenDemand.jls", simple_plot_data)
 
 end
 if fullPlot

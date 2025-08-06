@@ -236,6 +236,7 @@ function imbalance_costs(systemData, clients, startDay, days, stochasticData; pr
     
     abs_spread = abs.(imbalance_spread)  # Pre-compute absolute values
     n_coalitions = length(coalitions)
+    n_clients = maximum(length.(coalitions))
     progress_interval = max(1, div(n_coalitions, 20))  # Print progress 20 times total
     
     for (i, coalition) in enumerate(coalitions)
@@ -249,7 +250,12 @@ function imbalance_costs(systemData, clients, startDay, days, stochasticData; pr
         total_cost = sum(positive_imbalance .* abs_spread)
         
         coalition_costs[coalition] = total_cost
-        imbalanceDict[coalition] = imbalance_row
+        
+        # Only store imbalances for specific coalition sizes: 1, n_clients, n_clients-1
+        coalition_size = length(coalition)
+        if coalition_size == 1 || coalition_size == n_clients || coalition_size == n_clients - 1
+            imbalanceDict[coalition] = imbalance_row
+        end
         
         # Print progress at regular intervals
         if (i % progress_interval == 0 || i == n_coalitions) && printing
@@ -310,6 +316,7 @@ end
 
 function calculate_cvar_values(coalitions, period_interval_imbalance, imbalance_spread, alpha)
     n_coalitions = length(coalitions)
+    n_clients = maximum(length.(coalitions))
     intervals = size(period_interval_imbalance, 2)
     var_index = ceil(Int, intervals * alpha) # Index for the Value at Risk (VaR) threshold
     
@@ -319,7 +326,6 @@ function calculate_cvar_values(coalitions, period_interval_imbalance, imbalance_
     sizehint!(cvar_dict, n_coalitions)
     sizehint!(imbalance_dict, n_coalitions)
     
-    n_coalitions = length(coalitions)
     progress_interval = max(1, div(n_coalitions, 20))  # Print progress 20 times total
 
     for (i, coalition) in enumerate(coalitions)
@@ -330,12 +336,19 @@ function calculate_cvar_values(coalitions, period_interval_imbalance, imbalance_
         
         # Store results
         cvar_dict[coalition] = cvar_value
-        imbalance_dict[coalition] = view(period_interval_imbalance, i, :)
+        
+        # Only store imbalances for specific coalition sizes: 1, n_clients, n_clients-1
+        # These are the ones that use imbalance_dict
+        coalition_size = length(coalition)
+        if coalition_size == 1 || coalition_size == n_clients || coalition_size == n_clients - 1
+            imbalance_dict[coalition] = view(period_interval_imbalance, i, :)
+        end
 
         # Print progress at regular intervals
         if i % progress_interval == 0 || i == n_coalitions
             percentage = round(100 * i / n_coalitions, digits=1)
             println("CVaR calculation progress: $i of $n_coalitions ($percentage%)")
+            GC.gc()  # Force garbage collection to free memory
         end
     end
     
