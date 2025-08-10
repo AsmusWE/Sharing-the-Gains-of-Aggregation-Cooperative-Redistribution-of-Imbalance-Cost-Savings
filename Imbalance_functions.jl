@@ -416,7 +416,6 @@ function calculate_costs_specific(systemData, coalitions, stochasticData, simDay
     
     # Get imbalances for all coalitions
     imbalancesDict = calculate_imbalances_specific(systemData, coalitions, stochasticData, simDays)
-    
     # Calculate costs for each coalition using the imbalances
     costs_dict = Dict()
     abs_spread = abs.(imbalance_spread)  # Pre-compute absolute values

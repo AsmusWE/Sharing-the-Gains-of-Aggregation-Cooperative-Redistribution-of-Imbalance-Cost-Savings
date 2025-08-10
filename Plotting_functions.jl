@@ -321,7 +321,7 @@ function plot_variance(
     outliers = true
 )
     # Allocations that should not be plotted
-    skip_allocations = ["VCG", "VCG_budget_balanced", "nucleolus", "flat_rate", "shapley"]
+    skip_allocations = ["VCG", "nucleolus", "flat_rate", "shapley"]
     
     # Filter allocations for x-axis labels
     filtered_allocations = [a for a in allocations if haskey(allocation_labels, a) && !(a in skip_allocations)]
@@ -332,7 +332,7 @@ function plot_variance(
         ylabel="Relative costs [%]",
         xticks=(1:length(filtered_allocations), [allocation_labels[a][1] for a in filtered_allocations]),
         legend = :bottomright,
-        xrotation=0
+        xrotation=30
     )
     
     plot_index = 1

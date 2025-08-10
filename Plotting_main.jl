@@ -65,10 +65,10 @@ allocation_labels = Dict(
 #plotData = deserialize("Results/all_perfectPV.jls")
 #plotData = deserialize("Results/all_scenarios.jls")
 #plotData = deserialize("Results/all_noiseDemand_scenPV.jls")
-#plotData = deserialize("Results/simple_plot_scenPV_scenDemand.jls")
+plotData = deserialize("Results/simple_plot_scenPV_scenDemand.jls")
 #plotData = deserialize("Results/simple_plot_perfectPV_scenDemand.jls")
 #plotData = deserialize("Results/simple_plot_perfectPV_noiseDemand.jls")
-plotData = deserialize("Results/CVaR_scenPV_scenDemand.jls")
+#plotData = deserialize("Results/CVaR_scenPV_scenDemand.jls")
 
 
 # Sort clients by total demand (highest to lowest)
@@ -96,7 +96,7 @@ plot_cost_difference(
 
 if true
 plotDataVariance = deserialize("Results/variance_plot_data_scenDemand_scenPV.jls")
-plotclient = "P"
+plotclient = "A"
 
 plot_variance(
     plotDataVariance.allocations,

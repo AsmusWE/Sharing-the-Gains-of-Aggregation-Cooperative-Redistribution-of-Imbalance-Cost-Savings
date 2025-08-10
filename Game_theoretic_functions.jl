@@ -71,14 +71,17 @@ function allocation_variance(
     start_hour, 
     sim_days::Int
 )
-    # Simplified function that calculates allocations daily using sparse coalitions and calculate_costs_specific
-    # for improved performance by avoiding unnecessary coalition combinations
+    # Calculate imbalances once for the entire period, then slice by day for allocations
+    # This ensures consistency with the fullPlotSimple approach
     
     intervals_per_day = 96 # 15-min intervals per day
     
     # Use sparse coalitions instead of all combinations for better performance
     coalitions = sparse_coalitions(clients)
     
+    # Calculate imbalances for the entire period once
+    println("Calculating imbalances for entire period...")
+    totalCoalitionCosts, totalImbalancesDict = calculate_costs_specific(systemData, coalitions, stochasticData, sim_days)
     # Initialize data structures
     allocation_costs_daily = Dict{Tuple{String, String}, Vector{Float64}}()
     for client in clients
@@ -95,15 +98,40 @@ function allocation_variance(
     singletonCostsDaily = Dict(client => Float64[] for client in clients)
 
     for day in 1:sim_days
-        curr_interval = start_hour + Dates.Minute((day - 1) * intervals_per_day * 15)
         println("Calculating allocations for day $day")
         
-        # Set the period for the data (single day)
-        tempSystemData = set_period!(deepcopy(systemData), curr_interval, 1)
-        demandDF = set_period!(deepcopy(demandData), curr_interval, 1)
-
-        # Calculate imbalance costs for single day using calculate_costs_specific
-        coalitionCosts_day, imbalancesDict_day = calculate_costs_specific(tempSystemData, coalitions, stochasticData, 1)
+        # Calculate day indices for slicing
+        day_start_idx = (day - 1) * intervals_per_day + 1
+        day_end_idx = day * intervals_per_day
+        
+        # Create daily system data by slicing the already-trimmed systemData
+        tempSystemData = deepcopy(systemData)
+        tempSystemData["price_prod_demand_df"] = systemData["price_prod_demand_df"][day_start_idx:day_end_idx, :]
+        
+        # Slice imbalances for this day from the total calculated imbalances
+        imbalancesDict_day = Dict{Vector{String}, Vector{Float64}}()
+        coalitionCosts_day = Dict{Vector{String}, Float64}()
+        
+        # Get pricing data for this day
+        imbalance_spread = tempSystemData["price_prod_demand_df"][!, "ImbalanceSpreadEUR"]
+        dominantDirection = tempSystemData["price_prod_demand_df"][!, "DominatingDirection"]
+        abs_spread = abs.(imbalance_spread)
+        
+        for coalition in coalitions
+            # Slice the imbalances for this day
+            day_imbalances = totalImbalancesDict[coalition][day_start_idx:day_end_idx]
+            imbalancesDict_day[coalition] = day_imbalances
+            
+            # Calculate costs for this day using the same logic as calculate_costs_specific
+            total_cost = 0.0
+            for j in eachindex(dominantDirection)
+                imbalance_with_dir = day_imbalances[j] * dominantDirection[j]
+                if imbalance_with_dir > 0
+                    total_cost += imbalance_with_dir * abs_spread[j]
+                end
+            end
+            coalitionCosts_day[coalition] = total_cost
+        end
 
         # Calculate allocations for this day
         daily_allocations = calculate_allocations(
@@ -133,7 +161,6 @@ function allocation_variance(
             append!(intervalImbalances[[client]], imbalancesDict_day[[client]])
         end
     end
-
     return allocation_costs_daily, allocation_costs, coalitionCosts, intervalImbalances, singletonCostsDaily
 end
 
