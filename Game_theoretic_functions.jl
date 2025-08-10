@@ -71,40 +71,41 @@ function allocation_variance(
     start_hour, 
     sim_days::Int
 )
-    # This function calculates the allocations for each day and returns the costs, imbalances, and interval (15-min) imbalances
-
+    # Simplified function that calculates allocations daily using sparse coalitions and calculate_costs_specific
+    # for improved performance by avoiding unnecessary coalition combinations
+    
     intervals_per_day = 96 # 15-min intervals per day
-    # Generate coalitions from clients
-    coalitions = collect(combinations(clients))
+    
+    # Use sparse coalitions instead of all combinations for better performance
+    coalitions = sparse_coalitions(clients)
     
     # Initialize data structures
-    #allocation_costs_daily_MWh = Dict{Tuple{String, String, Int}, Float64}()
-    #allocation_costs_daily_ratio = Dict{Tuple{String, String, Int}, Float64}()
-    # client, allocation vector of days
     allocation_costs_daily = Dict{Tuple{String, String}, Vector{Float64}}()
-    # Initialize empty vectors for each client-allocation combination
     for client in clients
         for allocation in allocations
             allocation_costs_daily[(client, allocation)] = Float64[]
         end
     end
     allocation_costs = Dict(allocation => Dict(client => 0.0 for client in clients) for allocation in allocations)
-    imbalanceCosts = Dict(coalition => 0.0 for coalition in coalitions)
-    intervalImbalances = Dict(client => Float64[] for client in clients)
+    coalitionCosts = Dict(coalition => 0.0 for coalition in coalitions)
+    intervalImbalances = Dict{Vector{String}, Vector{Float64}}()
+    for client in clients
+        intervalImbalances[[client]] = Float64[]
+    end
     singletonCostsDaily = Dict(client => Float64[] for client in clients)
 
     for day in 1:sim_days
         curr_interval = start_hour + Dates.Minute((day - 1) * intervals_per_day * 15)
         println("Calculating allocations for day $day")
         
-        # Set the period for the data
+        # Set the period for the data (single day)
         tempSystemData = set_period!(deepcopy(systemData), curr_interval, 1)
         demandDF = set_period!(deepcopy(demandData), curr_interval, 1)
 
-        # Calculate imbalance costs for single day using imbalance_costs function
-        coalitionCosts_day, _, imbalancesDict_day = imbalance_costs(tempSystemData, clients, curr_interval, 1, stochasticData; printing=false, chunkSize=1)
+        # Calculate imbalance costs for single day using calculate_costs_specific
+        coalitionCosts_day, imbalancesDict_day = calculate_costs_specific(tempSystemData, coalitions, stochasticData, 1)
 
-
+        # Calculate allocations for this day
         daily_allocations = calculate_allocations(
             allocations, clients, coalitionCosts_day, imbalancesDict_day, tempSystemData, demandDF; printing = false
         )
@@ -114,33 +115,26 @@ function allocation_variance(
             push!(singletonCostsDaily[client], coalitionCosts_day[[client]])
         end
         
-        # Extracting allocations and adding them to total client allocation
+        # Extract allocations and add them to total client allocation
         for allocation in allocations
             alloc = daily_allocations[allocation]
             for client in clients
                 allocation_costs[allocation][client] += alloc[client]
-                # Scale allocations to cost per MWh total demand - avoid division by zero
-                if coalitionCosts_day[[client]] != 0.0
-                    push!(allocation_costs_daily[(client, allocation)], alloc[client])
-                    #allocation_costs_daily_MWh[(client, allocation, day)] = alloc[client] / sum(demandDF[!,client])
-                    #allocation_costs_daily_ratio[(client, allocation, day)] = alloc[client] / coalitionCosts_day[[client]]
-                else
-                    #allocation_costs_daily_MWh[(client, allocation, day)] = 0.0
-                    #allocation_costs_daily_ratio[(client, allocation, day)] = 0.0
-                end
+                # Store daily allocation
+                push!(allocation_costs_daily[(client, allocation)], alloc[client])
             end
         end
         
         # Accumulate total imbalance costs and interval imbalance costs
         for (coalition, imbalanceCost) in coalitionCosts_day
-            imbalanceCosts[coalition] += imbalanceCost
+            coalitionCosts[coalition] += imbalanceCost
         end
         for client in clients
-            append!(intervalImbalances[client], imbalancesDict_day[[client]])
+            append!(intervalImbalances[[client]], imbalancesDict_day[[client]])
         end
     end
 
-    return allocation_costs_daily, allocation_costs, imbalanceCosts, intervalImbalances, singletonCostsDaily
+    return allocation_costs_daily, allocation_costs, coalitionCosts, intervalImbalances, singletonCostsDaily
 end
 
 

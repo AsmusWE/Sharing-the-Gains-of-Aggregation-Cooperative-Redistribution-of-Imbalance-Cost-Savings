@@ -425,7 +425,6 @@ function calculate_imbalances_specific(systemData, coalitions, stochasticData, s
     
     # Calculate bids for each individual client 
     individual_bids = Dict()
-    println("Calculating bids for individual clients...")
     for client in all_clients
         individual_bids[client] = optimize_imbalance([client], systemData, stochasticData)
     end
@@ -433,7 +432,6 @@ function calculate_imbalances_specific(systemData, coalitions, stochasticData, s
     # Pre-calculate actual demand and PV for each client
     actual_demand_per_client = Dict()
     actual_pv_per_client = Dict()
-    println("Calculating actual demand and PV for each client...")
     for client in all_clients
         actual_demand_per_client[client] = systemData["price_prod_demand_df"][1:T, client]
         actual_pv_per_client[client] = systemData["price_prod_demand_df"][1:T, :SolarMWh] .* systemData["clientPVOwnership"][client]
@@ -441,7 +439,6 @@ function calculate_imbalances_specific(systemData, coalitions, stochasticData, s
     
     # Calculate imbalances for each coalition by summing individual components
     imbalancesDict = Dict()
-    println("Calculating imbalances for each coalition...")
     for coalition in coalitions
         # Sum bids for this coalition
         coalition_bids = sum(individual_bids[client] for client in coalition)

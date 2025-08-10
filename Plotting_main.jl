@@ -94,9 +94,9 @@ plot_cost_difference(
     plotData.systemData
 )
 
-if false
+if true
 plotDataVariance = deserialize("Results/variance_plot_data_scenDemand_scenPV.jls")
-plotclient = "A"
+plotclient = "P"
 
 plot_variance(
     plotDataVariance.allocations,
