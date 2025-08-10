@@ -5,7 +5,7 @@ const GUROBI_ENV = Gurobi.Env()
 
 
 function calculate_allocations(
-    allocations, clients, coalitionCosts, imbalancesDict,systemData, demandData; printing = true, return_time = false, alpha = 0.05
+    allocations, clients, coalitionCosts, imbalancesDict,systemData; printing = true, return_time = false, alpha = 0.05
     )
     allocation_times = Dict{String, Float64}()
     allocation_costs = Dict{String, Any}()
@@ -107,7 +107,7 @@ function allocation_variance(
 
         # Calculate allocations for this day
         daily_allocations = calculate_allocations(
-            allocations, clients, coalitionCosts_day, imbalancesDict_day, tempSystemData, demandDF; printing = false
+            allocations, clients, coalitionCosts_day, imbalancesDict_day, tempSystemData; printing = false
         )
         
         # Store singleton costs
@@ -249,60 +249,6 @@ function VCG_BB(clients, coalitionCosts)
     end
 
     return optimized_payments
-end
-
-function VCG_tax(clients, imbalance_costs, intervalImbalances, systemData; budget_balance=false)
-    # This function calculates the VCG value for each client in the grand coalition
-    # Handles both budget balanced and non-budget balanced cases
-    # Done by calculating taxes and value for each client, and then summing them up
-    T = length(intervalImbalances[[clients[1]]])
-    grand_coalition = vec(clients)
-    payments = calculate_payments(clients, intervalImbalances, systemData["upreg_price"], systemData["downreg_price"])
-    VCG_taxes = Dict{Vector{String}, Float64}()
-
-    # If budget balance is required, subsidies are adjusted to ensure the total taxes equal zero
-    if budget_balance
-        for t in 1:T
-            temp_taxes = Dict{String, Float64}()
-            # Calculate unadjusted taxes for each client
-            for i in clients
-                coalition_wo_i = filter(x -> x != i, grand_coalition)
-                gc_val_minus_i = sum(payments[client][t] for client in grand_coalition if client != i)
-                coalition_value_wo_i = sum(intervalImbalances[coalition_wo_i][t])
-                price = systemData["downreg_price"]
-                if coalition_value_wo_i < 0
-                    price = systemData["upreg_price"]
-                end
-                coalition_value_wo_i = abs(coalition_value_wo_i) * price
-                temp_taxes[i] = -(coalition_value_wo_i - gc_val_minus_i)
-            end
-            # Adjust taxes to ensure budget balance
-            total_taxes = sum(values(temp_taxes))
-            if total_taxes < -1e-4
-                subsidies = sum(v for v in values(temp_taxes) if v < 0)
-                taxes = sum(v for v in values(temp_taxes) if v > 0; init=0.0)
-                ratio = taxes / abs(subsidies)
-                for k in keys(temp_taxes)
-                    if temp_taxes[k] < 0
-                        temp_taxes[k] *= ratio
-                    end
-                end
-            end
-            for i in clients
-                VCG_taxes[[i]] = get(VCG_taxes, [i], 0.0) + temp_taxes[i]
-            end
-        end
-    else
-        for i in clients
-            coalition_wo_i = filter(x -> x != i, grand_coalition)
-            coalition_value_wo_i = imbalance_costs[coalition_wo_i]
-            gc_val_minus_i = sum(sum(payments[client] for client in grand_coalition if client != i))
-            VCG_taxes[[i]] = -(coalition_value_wo_i - gc_val_minus_i)
-        end
-    end
-    # Calculate final utilities
-    utilities = Dict(client => sum(payments[client]) + VCG_taxes[[client]] for client in clients)
-    return utilities
 end
 
 function calculate_payments(clients, intervalImbalances, upreg_price, downreg_price)
@@ -651,19 +597,6 @@ function nucleolus_optimize(n_clients, imbalances_vec, locked_status, locked_val
     else
         error("No optimal solution found in nucleolus optimization")
     end
-end
-
-function equal_allocation(clients, imbalances)
-    # This function calculates an even allocation for each client in the grand coalition
-    # It distributes the grand coalition imbalance cost evenly among all clients according to their imbalance
-    grand_coalition_imbalance = imbalances[clients]
-    total_solo_imbalance = sum(imbalances[[client]] for client in clients)
-    imbalance_factor = grand_coalition_imbalance / total_solo_imbalance
-    equal_allocation = Dict{String, Float64}()
-    for client in clients
-        equal_allocation[client] = imbalances[[client]] * imbalance_factor
-    end
-    return equal_allocation
 end
 
 function cost_based_allocation(clients, intervalImbalances, systemData, alpha)

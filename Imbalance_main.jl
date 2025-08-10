@@ -33,14 +33,14 @@ end
 CVaRFull = false # Full plot with all coalitions
 CVaRSimple = false # Simple plot with reduced coalitions
 fullPlotSimple = false # All days, only simple allocation
-fullPlot = false # All days, all allocations
-dailyPlot = true # Daily plot, all allocations
+fullPlot = true # All days, all allocations
+dailyPlot = false # Daily plot, all allocations
 
 systemData, clients, demandData = load_data()
 firstHour = minimum(systemData["price_prod_demand_df"][!, :HourUTC_datetime])
 lastHour = maximum(systemData["price_prod_demand_df"][!, :HourUTC_datetime])
 # Filter out smallest clients for full plot all coalitions, down from 22 to 19
-#clients = filter(x -> !(x in ["X", "W", "N"]), clients)
+clients = filter(x -> !(x in ["X", "W", "N"]), clients)
 # Filter down to 12 for nucleolus
 #clients = filter(x -> !(x in ["F", "V", "J","E", "T", "O", "Y"]), clients)
 
@@ -83,7 +83,7 @@ systemData = set_period!(systemData, start_hour, sim_days)
 demandData = set_period!(demandData, start_hour, sim_days)
 
 allocations = [
-    #"shapley",
+    "shapley",
     #"VCG",
     #"VCG_budget_balanced",
     "gately",
@@ -92,7 +92,7 @@ allocations = [
     "full_cost", # Uniform price for cost
     "reduced_cost",
     #"nucleolus",
-    #"flat_rate",
+    "flat_rate",
     #"cost_based" # Uniform price for CVaR
 ]
 
@@ -108,7 +108,7 @@ if CVaRFull
     )
 
     allocation_costs = calculate_allocations(
-        allocations, clients, CVaRDict, imbalancesDict, systemData, demandData; printing = true, alpha=alphaCVaR
+        allocations, clients, CVaRDict, imbalancesDict, systemData; printing = true, alpha=alphaCVaR
     )
 
     println("Checking stability for CVaR allocations...")
@@ -150,7 +150,7 @@ if CVaRSimple
     )
 
     allocation_costs = calculate_allocations(
-        allocations, clients, CVaRDict, imbalancesDict, systemData, demandData; printing = true, alpha=alphaCVaR
+        allocations, clients, CVaRDict, imbalancesDict, systemData; printing = true, alpha=alphaCVaR
     )
 
     println("Total CVaR: ", CVaRDict[clients])
@@ -182,7 +182,7 @@ if fullPlotSimple
         systemData, coalitions, stochasticData, sim_days
     )
     allocation_costs = calculate_allocations(
-        allocations, clients, coalitionCosts, imbalancesDict, systemData, demandData; printing = true
+        allocations, clients, coalitionCosts, imbalancesDict, systemData; printing = true
     )
     println("Total costs calculated for all coalitions.")
     #println("Allocation costs: ", allocation_costs)
@@ -223,7 +223,7 @@ if fullPlot
     #daily_cost_MWh_imbalance, allocation_costs, imbalances, hourly_imbalances = @time allocation_variance(allocations, clients, coalitions, systemData, start_hour, sim_days)
 
     allocation_costs = calculate_allocations(
-        allocations, clients, coalitions, coalitionCosts, imbalances, imbalancesDict, systemData, demandData; printing = true
+        allocations, clients, coalitionCosts, imbalancesDict, systemData; printing = true
         )
 
     # Checking stability
@@ -275,7 +275,7 @@ if fullPlot
         0 # Placeholder for daily_cost_MWh_imbalance, as it is not calculated in this script
     )
     # Save plot_data to the "Results" subfolder
-    serialize("Results/nuc_scenarios.jls", plot_data)
+    #serialize("Results/nuc_scenarios.jls", plot_data)
 end
 # Remove flat_rate allocation until it is fixed
 #allocations = filter(x -> x != "flat_rate", allocations)

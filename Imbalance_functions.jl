@@ -367,56 +367,6 @@ function calculate_MAE(imbalancesDict, systemData, coalition)
     return MAE
 end
 
-function calculate_MAE_old(systemData, stochasticData, clients, start_interval, days; forecastType = "demand")
-    # Calculate the Mean Absolute Error (MAE) of the forecast
-    # NOTE: CURRENTLY ONLY WORKING FOR DEMAND FORECASTS
-    totalDemand = 0
-    totalDemandInterval = zeros(size(systemData["price_prod_demand_df"], 1))
-    demandForecastType = stochasticData["demand_forecast"]
-    for client in clients
-        # Get the demand for the client
-        totalDemand += sum(systemData["price_prod_demand_df"][!, client])
-        totalDemandInterval .+= systemData["price_prod_demand_df"][!, client]
-    end
-    absDemandError = 0
-
-
-    if demandForecastType == "scenarios"
-        # Set the forecast as the median of the scenarios
-        demandForecast = median(get_demand_forecast(clients, stochasticData, systemData, size(systemData["price_prod_demand_df"], 1)), dims=2)
-        absDemandError = sum(abs.(demandForecast .- totalDemandInterval))
-    else
-        # if the forecast is noise, the forecast is generated in the optimization
-        # apply noise to the actual demand to approximate the forecast
-        demandForecast = zeros(size(systemData["price_prod_demand_df"], 1))
-        for client in clients
-            demandForecast .+= get_demand_forecast([client], stochasticData, systemData, size(systemData["price_prod_demand_df"], 1))
-        end
-        absDemandError = sum(abs.(demandForecast .- totalDemandInterval))
-    end
-    
-    println("Total demand: ", totalDemand)
-    println("Total demand interval: ", sum(totalDemandInterval))
-    println("Absolute demand error: ", absDemandError)
-    MAE_Demand = absDemandError / totalDemand
-
-    # Calculate the Mean Absolute Error (MAE) of the PV forecast
-    if forecastType == "pv"
-        # PV production is scaled according to client PV ownership
-        clientPVOwnership = sum(tempData["clientPVOwnership"][c] for c in clients)
-        totalPV = sum(tempData["price_prod_demand_df"][!, "SolarMWh"])
-        totalPV = totalPV .* clientPVOwnership  # Scale by total PV ownership
-        totalPVInterval = sum(tempData["price_prod_demand_df"][!, "SolarMWh"], dims=2)
-        totalPVInterval = totalPVInterval .* clientPVOwnership  # Scale by total PV ownership
-        # PV forecast is always deterministic
-        absPVError = sum(abs.(pvForecast .- totalPVInterval))
-        MAE_PV = absPVError / totalPV
-        return MAE_PV
-    else
-        return MAE_Demand
-    end
-end
-
 function calculate_imbalances_specific(systemData, coalitions, stochasticData, simDays)
     # Calculate imbalances for specific coalitions
     T = simDays * 96 
@@ -525,40 +475,6 @@ function calculate_CVaR_specific(systemData, coalitions, stochasticData, simDays
     end
     
     return cvar_dict, imbalancesDict
-end
-
-function costs_VCG(systemData, clients, startDay, days, stochasticData; printing=false)
-    # VCG mechanism requires coalitions of size N-1 and N
-    # N-1: all coalitions without one client (needed for VCG calculation)
-    # N: the grand coalition (all clients together)
-    
-    n = length(clients)
-    relevant_coalitions = []
-    
-    # Add grand coalition (size N)
-    push!(relevant_coalitions, clients)
-    
-    # Add all coalitions of size N-1 (exclude one client at a time)
-    for i in 1:n
-        coalition_wo_i = [clients[j] for j in 1:n if j != i]
-        push!(relevant_coalitions, coalition_wo_i)
-    end
-    
-    if printing
-        println("costs_VCG: Calculating costs for $(length(relevant_coalitions)) coalitions")
-        println("Coalition sizes: $(sort(unique([length(c) for c in relevant_coalitions])))")
-    end
-    
-    # Set up time period
-    tempData = set_period!(systemData, startDay, days)
-    T = size(tempData["price_prod_demand_df"], 1)
-    imbalance_spread = tempData["price_prod_demand_df"][!, "ImbalanceSpreadEUR"]
-    dominantDirection = tempData["price_prod_demand_df"][!, "DominatingDirection"]
-    
-    # Calculate costs for all relevant coalitions at once
-    costs_dict = calculate_costs_specific(tempData, relevant_coalitions, stochasticData, T, imbalance_spread, dominantDirection)
-    GC.gc()  # Force garbage collection to free memory
-    return costs_dict
 end
 
 function costs_Gately(systemData, clients, simDays, stochasticData; printing=false)
