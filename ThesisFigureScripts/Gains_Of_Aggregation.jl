@@ -125,8 +125,9 @@ struct PlotData
     sim_days::Int
     daily_cost_MWh_imbalance::Any
 end
-loadedData = deserialize("c:\\Users\\asmus\\OneDrive\\Dokumenter\\Uni\\Kandidat\\Speciale\\Git repository\\Control-and-revenue-distribution-of-shared-hybrid-PV-and-battery-systems\\Results\\all_scenarios.jls")
-coalitionCosts = loadedData.imbalances
+loadedData = deserialize("c:\\Users\\asmus\\OneDrive\\Dokumenter\\Uni\\Kandidat\\Speciale\\Git repository\\Control-and-revenue-distribution-of-shared-hybrid-PV-and-battery-systems\\Results\\CVaR_scenPV_scenDemand.jls")
+#coalitionCosts = loadedData.imbalances
+coalitionCosts = loadedData.coalitionCosts
 for i in 1:(length(filtered_clients))
     # Calculate the weighted average cost ratio for coalitions of size i
     coalitions_of_size_i = [coalition for coalition in keys(coalitionCosts) if length(coalition) == i]

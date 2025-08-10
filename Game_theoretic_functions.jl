@@ -717,15 +717,15 @@ function cost_based_allocation(clients, intervalImbalances, systemData, alpha)
     return allocation
 end
 
-function flat_rate_allocation(clients, coalitionCosts, demandData)
+function flat_rate_allocation(clients, coalitionCosts, systemData)
     # This function calculates the imbalance cost per MWh and allocates it evenly to all clients
     # This is roughly equivalent to the system currently in place
     allocation = Dict{String, Float64}()
     total_costs = coalitionCosts[clients]
-    total_demand = sum(sum(demandData[!, client]) for client in clients)
+    total_demand = sum(sum(systemData["price_prod_demand_df"][!, client]) for client in clients)
     flat_rate = total_costs / total_demand
     for client in clients
-        allocation[client] = flat_rate * sum(demandData[!, client])
+        allocation[client] = flat_rate * sum(systemData["price_prod_demand_df"][!, client])
     end
     return allocation
 end

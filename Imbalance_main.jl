@@ -30,16 +30,17 @@ end
 # =========================
 # 1. Data Loading & Setup
 # =========================
-CVaRFull = true # Full plot with all coalitions
+CVaRFull = false # Full plot with all coalitions
+CVaRSimple = false # Simple plot with reduced coalitions
 fullPlotSimple = false # All days, only simple allocation
 fullPlot = false # All days, all allocations
-dailyPlot = false # Daily plot, all allocations
+dailyPlot = true # Daily plot, all allocations
 
 systemData, clients, demandData = load_data()
 firstHour = minimum(systemData["price_prod_demand_df"][!, :HourUTC_datetime])
 lastHour = maximum(systemData["price_prod_demand_df"][!, :HourUTC_datetime])
 # Filter out smallest clients for full plot all coalitions, down from 22 to 19
-clients = filter(x -> !(x in ["X", "W", "N"]), clients)
+#clients = filter(x -> !(x in ["X", "W", "N"]), clients)
 # Filter down to 12 for nucleolus
 #clients = filter(x -> !(x in ["F", "V", "J","E", "T", "O", "Y"]), clients)
 
@@ -58,8 +59,8 @@ chunkSize = 3 # Days processed at a time when calculating imbalance costs, adjus
 
 stochasticData = Dict(
     # Accepted forecast types: "perfect", "scenarios", "noise"
-    "pv_forecast" => "scenarios",
-    "demand_forecast" => "scenarios",
+    "pv_forecast" => "perfect",
+    "demand_forecast" => "noise",
     # Set standard deviations in percent for noise
     # Adjusting so demand MAE is 7-10% and PV MAE is 22.5-25%
     # Note: PV forecast gives MAE of 22.5-25% using scenarios
@@ -82,17 +83,17 @@ systemData = set_period!(systemData, start_hour, sim_days)
 demandData = set_period!(demandData, start_hour, sim_days)
 
 allocations = [
-    "shapley",
-    "VCG",
-    "VCG_budget_balanced",
+    #"shapley",
+    #"VCG",
+    #"VCG_budget_balanced",
     "gately",
     #"gately_daily",
     "gately_interval",
     "full_cost", # Uniform price for cost
     "reduced_cost",
     #"nucleolus",
-    "flat_rate",
-    "cost_based" # Uniform price for CVaR
+    #"flat_rate",
+    #"cost_based" # Uniform price for CVaR
 ]
 
 # =========================
@@ -101,7 +102,7 @@ allocations = [
 if CVaRFull
     alphaCVaR = 0.05
     # Remove allocation methods that are not suitable for CVaR yet
-    allocations = filter(x -> !(x in ["full_cost", "reduced_cost", "flat_rate", "gately_interval"]), allocations)
+    allocations = filter(x -> !(x in ["full_cost", "reduced_cost", "gately_interval"]), allocations)
     CVaRDict, imbalancesDict = @time calculate_CVaR(
         systemData, clients, stochasticData; printing=true, chunkSize=chunkSize, alpha=alphaCVaR
     )
@@ -134,11 +135,47 @@ if CVaRFull
     )
 
 
+    serialize("Results/CVaR_full_scenPV_scenDemand.jls", cvar_plot_data)
+end
+if CVaRSimple 
+    alphaCVaR = 0.05
+    # Remove allocation methods that are not suitable for CVaR yet
+    allocations = filter(x -> !(x in ["full_cost", "reduced_cost", "gately_interval"]), allocations)
+    # Remove allocation methods that do not work with the simple calculations 
+    allocations = filter(x -> !(x in ["shapley", "nucleolus"]), allocations)
+    coalitions = sparse_coalitions(clients)
+    println("Calculating CVaR for simple plot...")
+    CVaRDict, imbalancesDict = @time calculate_CVaR_specific(
+        systemData, coalitions, stochasticData, sim_days;  alpha=alphaCVaR
+    )
+
+    allocation_costs = calculate_allocations(
+        allocations, clients, CVaRDict, imbalancesDict, systemData, demandData; printing = true, alpha=alphaCVaR
+    )
+
+    println("Total CVaR: ", CVaRDict[clients])
+    println("VCG CVaR: ", sum(values(allocation_costs["VCG"])))
+
+    # Save CVaR data for plotting 
+    cvar_plot_data = SimplePlotData(
+        allocations,
+        systemData,
+        allocation_costs,
+        CVaRDict,
+        imbalancesDict,
+        clients,
+        start_hour,
+        sim_days
+    )
+
+
     #serialize("Results/CVaR_scenPV_scenDemand.jls", cvar_plot_data)
 end
 if fullPlotSimple
     # Remove complex allocations for simple plot
     allocations = filter(x -> !(x in ["shapley", "nucleolus"]), allocations)
+    # Remove CVaR allocations for simple plot
+    allocations = filter(x -> !(x in ["cost_based"]), allocations)
     println("Calculating imbalance costs for full plot (simple)...")
     coalitions = sparse_coalitions(clients)
     coalitionCosts, imbalancesDict = @time calculate_costs_specific(
@@ -168,7 +205,7 @@ if fullPlotSimple
     )
 
     # Save simple_plot_data to the "Results" subfolder
-    serialize("Results/simple_plot_scenPV_scenDemand.jls", simple_plot_data)
+    serialize("Results/simple_plot_perfectPV_noiseDemand.jls", simple_plot_data)
 
 end
 if fullPlot
@@ -245,7 +282,7 @@ end
 # Remove nucleolus allocation as it is too slow 
 if dailyPlot
     allocations = filter(x -> x != "nucleolus", allocations)
-
+    allocations = filter(x -> x != "cost_based", allocations)
 
     println("Calculating allocations for daily plot...")
 

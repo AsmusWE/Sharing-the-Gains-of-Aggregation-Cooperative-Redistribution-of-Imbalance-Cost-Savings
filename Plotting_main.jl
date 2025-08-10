@@ -55,7 +55,7 @@ allocation_labels = Dict(
     "reduced_cost" => ("Reduced Cost", :darkblue),
     "nucleolus" => ("Nucleolus", :green),
     #"equal_share" => ("Equal Share", :purple),
-    #"cost_based" => ("Cost Based", :cyan),
+    "cost_based" => ("Uniform Price", :yellow),
     "flat_rate" => ("Flat Rate", :cyan)
 )
 
@@ -65,9 +65,11 @@ allocation_labels = Dict(
 #plotData = deserialize("Results/all_perfectPV.jls")
 #plotData = deserialize("Results/all_scenarios.jls")
 #plotData = deserialize("Results/all_noiseDemand_scenPV.jls")
-plotData = deserialize("Results/simple_plot_scenPV_scenDemand.jls")
+#plotData = deserialize("Results/simple_plot_scenPV_scenDemand.jls")
 #plotData = deserialize("Results/simple_plot_perfectPV_scenDemand.jls")
 #plotData = deserialize("Results/simple_plot_perfectPV_noiseDemand.jls")
+plotData = deserialize("Results/CVaR_scenPV_scenDemand.jls")
+
 
 # Sort clients by total demand (highest to lowest)
 total_demands = Dict(client => sum(plotData.systemData["price_prod_demand_df"][!, Symbol(client)]) for client in plotData.clients)
@@ -82,7 +84,8 @@ plot_results(
     clients_sorted,
     plotData.start_hour,
     plotData.sim_days,
-    allocation_labels
+    allocation_labels;
+    cvar = true
 )
 
 plot_cost_difference(
@@ -91,7 +94,7 @@ plot_cost_difference(
     plotData.systemData
 )
 
-if true
+if false
 plotDataVariance = deserialize("Results/variance_plot_data_scenDemand_scenPV.jls")
 plotclient = "A"
 
