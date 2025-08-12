@@ -85,7 +85,6 @@ allocations = [
     "VCG",
     "VCG_budget_balanced",
     "gately",
-    #"gately_daily",
     "gately_interval",
     "full_cost", # Uniform price for cost
     "reduced_cost",
