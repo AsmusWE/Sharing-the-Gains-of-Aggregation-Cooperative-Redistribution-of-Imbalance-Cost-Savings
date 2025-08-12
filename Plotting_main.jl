@@ -14,25 +14,16 @@ struct SimplePlotData
         sim_days::Int
 end
 
-#struct PlotData
-#    allocations::Vector{String}
-#    systemData::Dict{String, Any}
-#    allocation_costs::Dict{String, Any}
-#    imbalances::Dict{Any, Any}
-#    clients::Vector{String}
-#    start_hour::DateTime
-#    sim_days::Int
-#    daily_cost_MWh_imbalance::Any
-#end
-#struct VariancePlotData
-#    allocations::Vector{String}
-#    totalCost::Dict{String, Any}
-#    dailyCost::Any
-#    totalImbalances::Dict{Any, Any}
-#    intervalImbalances::Any
-#    clients::Vector{String}
-#    sim_days::Int
-#end
+struct PlotData
+    allocations::Vector{String}
+    systemData::Dict{String, Any}
+    allocation_costs::Dict{String, Any}
+    imbalances::Dict{Any, Any}
+    clients::Vector{String}
+    start_hour::DateTime
+    sim_days::Int
+    daily_cost_MWh_imbalance::Any
+end
 struct VariancePlotData
     allocations::Vector{String}
     totalCostAllocations::Dict{String, Any}
@@ -49,22 +40,14 @@ allocation_labels = Dict(
     "VCG" => ("VCG", :purple),
     "VCG_budget_balanced" => ("VCG Budget Balanced", :orange),
     "gately" => ("Gately Point", :grey),
-    #"gately_daily" => ("Gately Daily", :black),
     "gately_interval" => ("Gately 15Min interval", :lightgrey),
     "full_cost" => ("Uniform Price", :yellow),
     "reduced_cost" => ("Reduced Cost", :darkblue),
     "nucleolus" => ("Nucleolus", :green),
-    #"equal_share" => ("Equal Share", :purple),
     "cost_based" => ("Uniform Price", :yellow),
     "flat_rate" => ("Flat Rate", :cyan)
 )
 
-#plotData = deserialize("Results/all_scens.jls")
-#plotData = deserialize("Results/all_perfectPV.jls")
-#plotData = deserialize("Results/all_scens_temp.jls")
-#plotData = deserialize("Results/all_perfectPV.jls")
-#plotData = deserialize("Results/all_scenarios.jls")
-#plotData = deserialize("Results/all_noiseDemand_scenPV.jls")
 plotData = deserialize("Results/simple_plot_scenPV_scenDemand.jls")
 #plotData = deserialize("Results/simple_plot_perfectPV_scenDemand.jls")
 #plotData = deserialize("Results/simple_plot_perfectPV_noiseDemand.jls")

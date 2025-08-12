@@ -30,56 +30,19 @@ end
 # =========================
 # 1. Data Loading & Setup
 # =========================
+# Choose which calculations to run
 CVaRFull = false # CVaR calculation with all coalitions
+CVaRFullFileName = "temp.jls" # File name for full CVaR results
 CVaRSimple = true # CVaR calculation with simple coalitions
+CVaRSimpleFileName = "temp.jls" 
 costSimple = false # Cost only simple allocation
+costSimpleFileName = "temp.jls"
 costFull = false # Cost all allocations
+costFullFileName = "temp.jls"
 dailyPlot = false # Daily plot for cost, all allocations
+dailyPlotFileName = "temp.jls"
 
-systemData, clients, demandData = load_data()
-firstHour = minimum(systemData["price_prod_demand_df"][!, :HourUTC_datetime])
-lastHour = maximum(systemData["price_prod_demand_df"][!, :HourUTC_datetime])
-# Filter out smallest clients for full plot all coalitions, down from 22 to 19
-#clients = filter(x -> !(x in ["X", "W", "N"]), clients)
-# Filter down to 12 for nucleolus
-#clients = filter(x -> !(x in ["F", "V", "J","E", "T", "O", "Y"]), clients)
-
-# Last hour 2025-07-20T03:45:00
-start_hour = DateTime(2025, 4, 04, 00, 0, 0)
-#start_hour = DateTime(2025, 3, 04, 12, 0, 0)
-#start_hour = start_hour + Dates.Day(3) # Start at 00:00 of the next day
-#sim_days = 50
-sim_days = Int(floor((lastHour - start_hour) / Dates.Day(1)))-1 # Calculate number of days from start_hour to lastHour
-println("Simulation period: ", start_hour, " to ", start_hour + Dates.Day(sim_days - 1))
-println("Number of simulation days: ", sim_days)
-num_scenarios_demand = 5
-num_scenarios_price = 1 # Number of scenarios for imbalance spread
-spread_scens_length = 96 # Sets the length of the imbalance spread scenarios, will repeat after this if necessary
-chunkSize = 3 # Days processed at a time when calculating imbalance costs, adjust based on memory
-alphaCVaR = 0.05 # CVaR confidence level
-stochasticData = Dict(
-    # Accepted forecast types demand: "perfect", "scenarios", "noise"
-    # Accepted forecast types PV: "perfect", "scenarios"
-    "pv_forecast" => "scenarios",
-    "demand_forecast" => "scenarios",
-    # Set standard deviations in percent for noise
-    # Adjusting so demand MAE is 7-10% and PV MAE is 22.5-25%
-    # Note: PV forecast gives MAE of 22.5-25% using scenarios
-    "demand_noise_std" => 0.28,
-    "pv_noise_std" => 0.32
-)
-
-if stochasticData["demand_forecast"] == "scenarios"
-    stochasticData["demand_scenarios"] = generate_scenarios_demand_rolling(clients, demandData, start_hour, sim_days; num_scenarios=num_scenarios_demand)
-end
-
-stochasticData["imbalance_spread"] = generate_scenarios_imbalance_spread(systemData, start_hour, spread_scens_length; num_scenarios=num_scenarios_price)
-stochasticData["dominantDirection01"] = generate_dominant_direction(stochasticData["imbalance_spread"])
-
-# Cut systemData and demandData to the simulation period
-systemData = set_period!(systemData, start_hour, sim_days)
-demandData = set_period!(demandData, start_hour, sim_days)
-
+# Choose which allocations to calculate
 allocations = [
     #"shapley",
     "VCG",
@@ -93,11 +56,51 @@ allocations = [
     #"cost_based" # Uniform price for CVaR
 ]
 
+
+systemData, clients, demandData = load_data()
+firstHour = minimum(systemData["price_prod_demand_df"][!, :HourUTC_datetime])
+lastHour = maximum(systemData["price_prod_demand_df"][!, :HourUTC_datetime])
+# Filter out smallest clients for full plot all coalitions, down from 22 to 19
+#clients = filter(x -> !(x in ["X", "W", "N"]), clients)
+# Filter down to 12 for nucleolus
+#clients = filter(x -> !(x in ["F", "V", "J","E", "T", "O", "Y"]), clients)
+
+start_hour = DateTime(2025, 4, 04, 00, 0, 0)
+sim_days = Int(floor((lastHour - start_hour) / Dates.Day(1)))-1 # Calculate number of days from start_hour to lastHour
+println("Simulation period: ", start_hour, " to ", start_hour + Dates.Day(sim_days - 1))
+println("Number of simulation days: ", sim_days)
+num_scenarios_demand = 5 # Number of scenarios for demand
+num_scenarios_price = 1 # Number of scenarios for imbalance spread
+spread_scens_length = 96 # Sets the length of the imbalance spread scenarios, will repeat after this if necessary
+chunkSize = 3 # Days processed at a time when calculating imbalance costs in the full coalition calculations, adjust based on memory
+alphaCVaR = 0.05 # CVaR confidence level
+
+stochasticData = Dict(
+    # Accepted forecast types demand: "perfect", "scenarios", "noise"
+    # Accepted forecast types PV: "perfect", "scenarios"
+    "pv_forecast" => "scenarios",
+    "demand_forecast" => "scenarios",
+    # Set standard deviations in percent for noise
+    "demand_noise_std" => 0.28,
+)
+
+if stochasticData["demand_forecast"] == "scenarios"
+    stochasticData["demand_scenarios"] = generate_scenarios_demand_rolling(clients, demandData, start_hour, sim_days; num_scenarios=num_scenarios_demand)
+end
+
+stochasticData["imbalance_spread"] = generate_scenarios_imbalance_spread(systemData, start_hour, spread_scens_length; num_scenarios=num_scenarios_price)
+stochasticData["dominantDirection01"] = generate_dominant_direction(stochasticData["imbalance_spread"])
+
+# Cut systemData and demandData to the simulation period
+systemData = set_period!(systemData, start_hour, sim_days)
+demandData = set_period!(demandData, start_hour, sim_days)
+
+
 # =========================
 # 2. Imbalance Calculation and allocation
 # =========================
 if CVaRFull
-    # Remove allocation methods that are not suitable for CVaR yet
+    # Remove allocation methods that are not suitable for CVaR
     allocations = filter(x -> !(x in ["full_cost", "reduced_cost", "gately_interval"]), allocations)
     CVaRDict, imbalancesDict = @time calculate_CVaR(
         systemData, clients, stochasticData; printing=true, chunkSize=chunkSize, alpha=alphaCVaR
@@ -129,9 +132,7 @@ if CVaRFull
         start_hour,
         sim_days
     )
-
-
-    #serialize("Results/CVaR_full_scenPV_scenDemand.jls", cvar_plot_data)
+    serialize("Results/" * CVaRFullFileName, cvar_plot_data)
 end
 if CVaRSimple 
     # Remove allocation methods that are not suitable for CVaR yet
@@ -164,7 +165,7 @@ if CVaRSimple
     )
 
 
-    #serialize("Results/CVaR_scenPV_scenDemand.jls", cvar_plot_data)
+    serialize("Results/" * CVaRSimpleFileName, cvar_plot_data)
 end
 if costSimple
     # Remove complex allocations for simple plot
@@ -200,7 +201,7 @@ if costSimple
     )
 
     # Save simple_plot_data to the "Results" subfolder
-    #serialize("Results/simple_plot_scenPV_noiseDemand.jls", simple_plot_data)
+    serialize("Results/" * costSimpleFileName, simple_plot_data)
 
 end
 if costFull
@@ -273,7 +274,7 @@ if costFull
         0 # Placeholder for daily_cost_MWh_imbalance, as it is not calculated in this script
     )
     # Save plot_data to the "Results" subfolder
-    #serialize("Results/nuc_scenarios.jls", plot_data)
+    serialize("Results/" * costFullFileName, plot_data)
 end
 # Remove flat_rate allocation until it is fixed
 #allocations = filter(x -> x != "flat_rate", allocations)
@@ -314,7 +315,7 @@ if dailyPlot
     println("Total singleton costs: ", sum(sum(singletonCostsDaily[client] for client in clients)))
     println("Total costs for all allocations: ", totalImbalanceCosts[clients])
     # Save variance plot data to the "Results" subfolder
-    serialize("Results/variance_plot_data_scenDemand_scenPV.jls", variance_plot_data)
+    serialize("Results/" * dailyPlotFileName, variance_plot_data)
 
 end
 GC.gc() # Run garbage collection to free memory after processing
