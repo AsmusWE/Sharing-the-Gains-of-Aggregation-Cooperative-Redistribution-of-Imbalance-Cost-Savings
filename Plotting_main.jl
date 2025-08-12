@@ -85,7 +85,7 @@ plot_results(
     plotData.start_hour,
     plotData.sim_days,
     allocation_labels;
-    cvar = true
+    cvar = false
 )
 
 plot_cost_difference(
@@ -94,9 +94,9 @@ plot_cost_difference(
     plotData.systemData
 )
 
-if true
+if false
 plotDataVariance = deserialize("Results/variance_plot_data_scenDemand_scenPV.jls")
-plotclient = "A"
+plotclient = "P"
 
 plot_variance(
     plotDataVariance.allocations,
@@ -105,6 +105,6 @@ plot_variance(
     plotclient,
     plotDataVariance.sim_days,
     allocation_labels;
-    outliers = false
+    outliers = true
 )
 end

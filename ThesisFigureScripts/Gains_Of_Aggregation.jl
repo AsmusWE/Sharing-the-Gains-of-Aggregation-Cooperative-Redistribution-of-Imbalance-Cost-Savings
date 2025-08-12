@@ -67,7 +67,7 @@ coalitions = sparse_coalitions(clients)
 
 stdDevMax = 1
 stdDevMin = 0
-stepSize = 1 
+stepSize = 0.05 
 steps = Int(floor((stdDevMax - stdDevMin) / stepSize)) + 1
 println("Running with $steps steps from $stdDevMin to $stdDevMax")
 singletonCostsSum = zeros(Float64,steps)
@@ -92,14 +92,15 @@ costRatio[1] = 1
 stdDevRange = collect(stdDevMin:stepSize:stdDevMax)
 plot(
     stdDevRange, costRatio,
-    xlabel="Demand Noise Std Dev",
-    ylabel="Singleton Cost Sum / Aggregated Cost",
-    title="Cost Ratio vs Demand Noise Std Dev",
+    xlabel="Demand Noise Standard Deviation",
+    ylabel="Aggregated Cost / Singleton Cost",
+    title="Cost Ratio vs Demand Noise Standard Deviation",
     legend=false,
     marker=:circle,
     linewidth=2
 )
 
+if false
 # Sort clients by total demand (highest to lowest)
 total_demands = Dict(client => sum(systemData["price_prod_demand_df"][!, Symbol(client)]) for client in clients)
 sorted_clients_pairs = sort(collect(total_demands), by = x -> -x[2])  # Sort by demand descending
@@ -158,3 +159,4 @@ plot(
     linewidth=2
 )
 
+end

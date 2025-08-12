@@ -65,15 +65,16 @@ allocations = [
     "VCG_budget_balanced",
     "gately",
     #"gately_daily",
-    "gately_interval",
-    "full_cost",
-    "reduced_cost",
+    #"gately_interval",
+    #"full_cost",
+    #"reduced_cost",
     #"nucleolus",
     #"equal_share",
-    #"cost_based",
+    "cost_based",
     #"flat_rate"
 ]
-
+chunkSize = 3 # Days processed at a time when calculating imbalance costs, adjust based on memory
+alphaCVaR = 0.05 # CVaR alpha level
 # =========================
 # 2. Imbalance Calculation and allocation
 # =========================
@@ -87,11 +88,18 @@ timing_df = DataFrame(
 # Do a first unsaved run to ensure the functions are compiled
 # Use a local scope to avoid polluting the global namespace
 println("Running initial unsaved timing run...")
+gatelyCoalitions = sparse_coalitions(clients)
 let
-    coalitionCosts, imbalances, imbalancesDict = imbalance_costs(systemData, clients, start_hour, sim_days, stochasticData; printing=false)
-    costs_Gately(systemData, clients, sim_days, stochasticData; printing=false)
+    #coalitionCosts, imbalances, imbalancesDict = imbalance_costs(systemData, clients, start_hour, sim_days, stochasticData; printing=false)
+    coalitionCosts, imbalancesDict = calculate_CVaR(
+        systemData, clients, stochasticData; printing=false, chunkSize=chunkSize, alpha=alphaCVaR
+    )
+    calculate_CVaR_specific(
+        systemData, gatelyCoalitions, stochasticData, sim_days;  alpha=alphaCVaR
+    )
+    #costs_Gately(systemData, clients, sim_days, stochasticData; printing=false)
     calculate_allocations(
-        allocations, clients, coalitions, coalitionCosts, imbalances, imbalancesDict, systemData, demandData; printing = false, return_time = true
+        allocations, clients, coalitionCosts, imbalancesDict, systemData; printing = false, return_time = true
     )
 end
 
@@ -100,17 +108,23 @@ for i in 1:(length(clients)-1)
     println("Current clients: ", current_clients)
     # Generate coalitions for the current client subset
     current_coalitions = collect(combinations(current_clients))
+    gatelyCoalitions = sparse_coalitions(current_clients)
     println("  Number of coalitions: $(length(current_coalitions))")
     
     # Time calculation time for different amounts of coalitions
-    costs_full_time = @elapsed coalitionCosts, imbalances, imbalancesDict = imbalance_costs(systemData, current_clients, start_hour, sim_days, stochasticData; printing=false)
-    costs_Gately(systemData, clients, sim_days, stochasticData; printing=false)
-    costs_Gately_time = @elapsed costs_Gately(systemData, current_clients, sim_days, stochasticData; printing=false)
-    
+    #costs_full_time = @elapsed coalitionCosts, imbalances, imbalancesDict = imbalance_costs(systemData, current_clients, start_hour, sim_days, stochasticData; printing=false)
+    costs_full_time = @elapsed coalitionCosts, imbalancesDict = calculate_CVaR(
+        systemData, current_clients, stochasticData; printing=false, chunkSize=chunkSize, alpha=alphaCVaR
+    )
+    #costs_Gately(systemData, current_clients, sim_days, stochasticData; printing=false)
+    #costs_Gately_time = @elapsed costs_Gately(systemData, current_clients, sim_days, stochasticData; printing=false)
+    costs_Gately_time = @elapsed calculate_CVaR_specific(
+        systemData, gatelyCoalitions, stochasticData, sim_days;  alpha=alphaCVaR
+    )
     
     println("  Calculating allocations...")
     allocation_times = calculate_allocations(
-        allocations, current_clients, current_coalitions, coalitionCosts, imbalances, imbalancesDict, systemData, demandData; printing = false, return_time = true
+        allocations, current_clients, coalitionCosts, imbalancesDict, systemData; printing = false, return_time = true
     )
     for allocation in allocations
         if allocation == "nucleolus" || allocation == "shapley"
@@ -149,7 +163,7 @@ allocation_labels = Dict(
     "reduced_cost" => ("Reduced Cost", :darkblue),
     "nucleolus" => ("Nucleolus", :green),
     #"equal_share" => ("Equal Share", :purple),
-    #"cost_based" => ("Cost Based", :cyan),
+    "cost_based" => ("Uniform Price", :yellow),
     "flat_rate" => ("Flat Rate", :cyan)
 )
 

@@ -45,15 +45,15 @@ function plot_results(
     #yMin = minimum([minimum(cost_MWh[alloc][k] for k in plotKeys) for alloc in allocations if haskey(cost_MWh, alloc)])
     if cvar == false
         p_fees_MWh = plot(
-            #title="Imbalance cost per MWh demand\n Noise Demand Forecast, Perfect PV Forecast",
-            title="Imbalance cost per MWh demand",
+            title="Imbalance cost per MWh demand\n Noise Demand Forecast, Perfect PV Forecast",
+            #title="Imbalance cost per MWh demand",
             xlabel="Client",
             ylabel="€/MWh",
             xticks=(1:length(plotKeys), plotKeys),
             xrotation=45,
-            legend=:topleft,
-            ylim = (0, yMax * 1.1),
-            titlefont=font(10)  # Reduce title font size
+            legend=:topright,
+            #ylim = (0, yMax * 1.1),
+            #titlefont=font(10)  # Reduce title font size
         )
     else
         ymin = minimum([minimum(cost_MWh[alloc][k] for k in plotKeys) for alloc in allocations if haskey(cost_MWh, alloc)])
@@ -158,13 +158,13 @@ function plot_results(
     #lower_ylim = min(0.0, min_val - 0.05)  # Add a small margin below min_val, but not above 0
     if cvar == false
         p_CostRatio = plot(
-            title="Imbalance cost contribution vs individual cost",
+            title="Imbalance cost contribution vs individual cost\n Noise Demand Forecast, Perfect PV Forecast",
             xlabel="Client",
             ylabel="Relative cost [%]",
             xticks=(1:length(plotKeys), plotKeys),
             xrotation=45,
-            ylim=(0, 105),
-            legend=:bottomleft
+            #ylim=(0, 105),
+            #legend=:bottomleft
         )
     else
         ymin = minimum([minimum(CostRatio[alloc][k] for k in plotKeys) for alloc in allocations if haskey(CostRatio, alloc)])
@@ -241,76 +241,6 @@ function plot_results(
     display(p_total_demand)
 end
 
-function save_rel_imbal(all_noise, all_scen, nuc_noise, nuc_scen)
-    plotdata_list = [all_noise, all_scen, nuc_noise, nuc_scen]
-    plot_titles = [
-        "All, Noise",
-        "All, Scenario",
-        "Nucleolus, Noise",
-        "Nucleolus, Scenario"
-    ]
-    all_rows = DataFrame()
-    for idx in 1:4
-        pd = plotdata_list[idx]
-        allocations = pd.allocations
-        allocation_costs = pd.allocation_costs
-        imbalances = pd.imbalances
-        clients = pd.clients
-        plotKeys = clients
-        scenario = plot_titles[idx]
-        # Calculate grand coalition and average relative imbalance
-        grand_coalition_imbalance = imbalances[clients]
-        individual_imbalance_sum = sum(imbalances[[client]] for client in clients)
-        average_relative_imbalance = grand_coalition_imbalance / individual_imbalance_sum
-        for alloc in allocations
-            if haskey(allocation_costs, alloc)
-                for client in plotKeys
-                    value = allocation_costs[alloc][client] / imbalances[[client]]
-                    push!(all_rows, (
-                        Scenario = scenario,
-                        Allocation = alloc,
-                        Client = client,
-                        Value = value,
-                        AverageRelativeImbalance = average_relative_imbalance,
-                    ))
-                end
-            end
-        end
-    end
-    CSV.write("Results/relative_imbalance_data.csv", all_rows)
-    return all_rows
-end
-
-function save_variance_data(
-    allocations,
-    allocation_costs,
-    daily_cost_MWh_imbalance,
-    imbalances,
-    clients,
-    sim_days;
-    scenario_name = ""
-)
-    rows = DataFrame()
-    for alloc in allocations
-        for client in clients
-            for day in 1:sim_days
-                value = daily_cost_MWh_imbalance[(client, alloc, day)]
-                mean_val_weighted = allocation_costs[alloc][client] / imbalances[[client]]
-                push!(rows, (
-                    Scenario = scenario_name,
-                    Allocation = alloc,
-                    Client = client,
-                    Day = day,
-                    Value = value,
-                    WeightedMean = mean_val_weighted
-                ))
-            end
-        end
-    end
-    CSV.write("Results/variance_data.csv", rows)
-    return rows
-end
-
 function plot_variance(
     allocations,
     daily_cost,
@@ -337,17 +267,24 @@ function plot_variance(
     
     plot_index = 1
     weighted_mean_labeled = false
+    median_labeled = false
     for alloc in filtered_allocations
         label, color = allocation_labels[alloc]
 
-        plotVals = daily_cost[(plot_client, alloc)]./singletonCosts[plot_client]
+        plotVals = daily_cost[(plot_client, alloc)]./singletonCosts[plot_client] * 100  # Convert to percentage
         boxplot!(fill(plot_index, sim_days), plotVals; color=color, markerstrokecolor=:black, label=false, outliers=outliers)
-        #mean_val_unweighted = sum(plotVals) / length(plotVals)
-        mean_val_weighted = sum(daily_cost[(plot_client, alloc)])/sum(singletonCosts[plot_client])
-        #annotate!(plot_index, mean_val_unweighted, text(string(round(mean_val_unweighted, digits=4)), :black, :center, 8))
+        mean_val_weighted = sum(daily_cost[(plot_client, alloc)])/sum(singletonCosts[plot_client]) * 100  # Convert to percentage
+        
+        # Add median to legend (only once)
+        if !median_labeled
+            # Create a dummy line to represent the median in the legend
+            plot!(Float64[], Float64[], color=:black, linewidth=2, label="Median")
+            median_labeled = true
+        end
+        
         # Add a blue line for the weighted mean
-        mean_label = weighted_mean_labeled ? false : "Weighted Mean"
-        plot!([plot_index-0.4, plot_index+0.4], [mean_val_weighted, mean_val_weighted], color=:blue, linewidth=2, label=mean_label)
+        weighted_mean_label = weighted_mean_labeled ? false : "Weighted Mean"
+        plot!([plot_index-0.4, plot_index+0.4], [mean_val_weighted, mean_val_weighted], color=:blue, linewidth=2, label=weighted_mean_label)
         weighted_mean_labeled = true
         plot_index += 1
     end
@@ -358,7 +295,9 @@ function plot_cost_difference(allocation_costs, clients, systemData)
     # This function compares the cost of the most expensive allocation with the least expensive for each client
     # Flat_rate is excluded from this comparison
     filtered_allocations = filter(x -> x != "flat_rate", keys(allocation_costs))
-    filtered_allocations = filter(x -> x != "VCG" && x != "VCG_budget_balanced", filtered_allocations)
+    filtered_allocations = filter(x -> x != "VCG" , filtered_allocations)
+    # Convert to vector for indexing
+    filtered_allocations = collect(filtered_allocations)
     
     # Calculate cost per MWh for each allocation
     cost_MWh = Dict()
@@ -408,36 +347,15 @@ function plot_cost_difference(allocation_costs, clients, systemData)
         legend=:none
     )
     display(p2)
-end
-
-function plot_imbalance(coalition, imbalances)
-    # Plots the imbalances for a given coalition 
-    intervals = length(imbalances[coalition[1]])
-    coalitionImbalance = zeros(intervals)
-    for client in coalition
-        coalitionImbalance .+= imbalances[client]
+    # Print a table with the most expensive and cheapest allocation for each client
+    println("Client\tCheapest Allocation\tCheapest €/MWh\tMost Expensive Allocation\tMost Expensive €/MWh")
+    for client in clients
+        min_alloc = argmin([cost_MWh[alloc][client] for alloc in filtered_allocations])
+        max_alloc = argmax([cost_MWh[alloc][client] for alloc in filtered_allocations])
+        cheapest_alloc = filtered_allocations[min_alloc]
+        most_expensive_alloc = filtered_allocations[max_alloc]
+        cheapest_cost = cost_MWh[cheapest_alloc][client]
+        most_expensive_cost = cost_MWh[most_expensive_alloc][client]
+        println("$(client)\t$(cheapest_alloc)\t$(round(cheapest_cost, digits=2))\t$(most_expensive_alloc)\t$(round(most_expensive_cost, digits=2))")
     end
-    
-    # Sum 15-minute intervals into daily totals (96 intervals per day = 24 hours × 4 intervals per hour)
-    intervals_per_day = 96
-    num_days = div(intervals, intervals_per_day)
-    daily_imbalance = zeros(num_days)
-    
-    for day in 1:num_days
-        start_idx = (day - 1) * intervals_per_day + 1
-        end_idx = day * intervals_per_day
-        daily_imbalance[day] = sum(coalitionImbalance[start_idx:end_idx])
-    end
-    
-    p = plot(
-        1:num_days,
-        daily_imbalance,
-        title="Daily Imbalance for Coalition: $coalition",
-        xlabel="Days",
-        ylabel="Daily Imbalance [MWh]",
-        legend=:topright,
-        color=:red,
-        label="Imbalance"
-    )
-    display(p)
 end

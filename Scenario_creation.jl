@@ -69,15 +69,6 @@ function generate_scenarios_demand_rolling(clients, demandDF, start_hour, sim_da
     return scenarios_dict
 end
 
-function generate_noise_forecast_PV(systemData, start_hour, sim_days)
-    standard_deviation = systemData["pv_noise_std"]
-    # Get the number of time steps in the forecast
-    tempData = set_period!(systemData, start_hour, sim_days)
-    data_length = size(tempData["price_prod_demand_df"], 1)
-    pvForecast = tempData["price_prod_demand_df"][:, :SolarMWh] .* (1 .+ standard_deviation * randn(data_length, 1))
-    return pvForecast
-end
-
 function generate_scenarios_imbalance_spread(systemData, start_hour, scenario_length; num_scenarios = 100)
     imbalance_spread = systemData["price_prod_demand_df"][:, :ImbalanceSpreadEUR]
     scenarios = zeros(num_scenarios, scenario_length)

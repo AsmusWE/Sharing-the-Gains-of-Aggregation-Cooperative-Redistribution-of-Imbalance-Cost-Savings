@@ -98,8 +98,6 @@ function allocation_variance(
     singletonCostsDaily = Dict(client => Float64[] for client in clients)
 
     for day in 1:sim_days
-        println("Calculating allocations for day $day")
-        
         # Calculate day indices for slicing
         day_start_idx = (day - 1) * intervals_per_day + 1
         day_end_idx = day * intervals_per_day
