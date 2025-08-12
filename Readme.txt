@@ -81,14 +81,41 @@ The implementation is based on a case study, and as such the data is not publicl
    - `Solar_Forecasts_Hour.csv`: Solar production forecasts
 
 3. **Configure Simulation**: Edit parameters in `Imbalance_main.jl`:
-   - `start_hour`: Simulation start time (DateTime object)
-   - `sim_days`: Number of simulation days
-   - `num_scenarios`: Number of demand scenarios for scenario-based forecasting
-   - `alpha`: CVaR confidence level (default: 0.05)
-   - Forecast types: Set `demand_forecast` and `pv_forecast` to "perfect", "scenarios", or "noise"
-   - Noise parameters: Configure `demand_noise_std` and `pv_noise_std` for stochastic forecasting
-   - 
-
+   - **Calculation Types**: Set boolean flags for which analyses to run:
+     ```julia
+     CVaRFull = false        # CVaR calculation with all coalitions (computationally intensive)
+     CVaRSimple = true       # CVaR calculation with simple coalitions (recommended for testing)
+     costSimple = false      # Cost-only simple allocation
+     costFull = false        # Cost calculation for all coalitions
+     dailyPlot = false       # Daily variance analysis
+     ```
+   - **Allocation Methods**: Select which allocation mechanisms to include:
+     ```julia
+     allocations = [
+         "VCG",                    # Standard VCG mechanism
+         "VCG_budget_balanced",    # Budget-balanced VCG variant
+         "gately",                 # Gately point allocation
+         "gately_interval",        # Gately point (15-minute intervals)
+         "full_cost",              # Uniform pricing for cost
+         "reduced_cost",           # Alternative simple mechanism
+         "flat_rate"               # Flat rate allocation
+     ]
+     ```
+   - **Simulation Period**: Configure time period and scenarios:
+     ```julia
+     start_hour = DateTime(2025, 4, 04, 00, 0, 0)  # Simulation start date
+     num_scenarios_demand = 5     # Number of demand scenarios
+     num_scenarios_price = 1      # Number of price scenarios
+     alphaCVaR = 0.05            # CVaR confidence level (5%)
+     ```
+   - **Forecasting Configuration**: Set forecast types and noise levels:
+     ```julia
+     stochasticData = Dict(
+         "pv_forecast" => "scenarios",      # Options: "perfect", "scenarios"
+         "demand_forecast" => "scenarios",  # Options: "perfect", "scenarios", "noise"
+         "demand_noise_std" => 0.28        # Standard deviation for noise forecasting
+     )
+     ```
 
 4. **Run Analysis**: Execute the main script:
    ```julia

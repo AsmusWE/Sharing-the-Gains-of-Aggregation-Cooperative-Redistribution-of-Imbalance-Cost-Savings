@@ -276,9 +276,7 @@ if costFull
     # Save plot_data to the "Results" subfolder
     serialize("Results/" * costFullFileName, plot_data)
 end
-# Remove flat_rate allocation until it is fixed
-#allocations = filter(x -> x != "flat_rate", allocations)
-# Remove nucleolus allocation as it is too slow 
+
 if dailyPlot
     allocations = filter(x -> x != "nucleolus", allocations)
     allocations = filter(x -> x != "cost_based", allocations)
