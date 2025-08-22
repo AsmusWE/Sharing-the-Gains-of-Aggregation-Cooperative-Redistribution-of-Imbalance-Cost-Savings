@@ -65,12 +65,12 @@ allocations = [
     "VCG_budget_balanced",
     "gately",
     #"gately_daily",
-    #"gately_interval",
-    #"full_cost",
-    #"reduced_cost",
+    "gately_interval",
+    "full_cost",
+    "reduced_cost",
     #"nucleolus",
     #"equal_share",
-    "cost_based",
+    #"cost_based",
     #"flat_rate"
 ]
 chunkSize = 3 # Days processed at a time when calculating imbalance costs, adjust based on memory
@@ -90,14 +90,14 @@ timing_df = DataFrame(
 println("Running initial unsaved timing run...")
 gatelyCoalitions = sparse_coalitions(clients)
 let
-    #coalitionCosts, imbalances, imbalancesDict = imbalance_costs(systemData, clients, start_hour, sim_days, stochasticData; printing=false)
-    coalitionCosts, imbalancesDict = calculate_CVaR(
-        systemData, clients, stochasticData; printing=false, chunkSize=chunkSize, alpha=alphaCVaR
-    )
-    calculate_CVaR_specific(
-        systemData, gatelyCoalitions, stochasticData, sim_days;  alpha=alphaCVaR
-    )
-    #costs_Gately(systemData, clients, sim_days, stochasticData; printing=false)
+    coalitionCosts, imbalances, imbalancesDict = imbalance_costs(systemData, clients, start_hour, sim_days, stochasticData; printing=false)
+    #coalitionCosts, imbalancesDict = calculate_CVaR(
+    #    systemData, clients, stochasticData; printing=false, chunkSize=chunkSize, alpha=alphaCVaR
+    #)
+    #calculate_CVaR_specific(
+    #    systemData, gatelyCoalitions, stochasticData, sim_days;  alpha=alphaCVaR
+    #)
+    costs_Gately(systemData, clients, sim_days, stochasticData; printing=false)
     calculate_allocations(
         allocations, clients, coalitionCosts, imbalancesDict, systemData; printing = false, return_time = true
     )
@@ -112,17 +112,21 @@ for i in 1:(length(clients)-1)
     println("  Number of coalitions: $(length(current_coalitions))")
     
     # Time calculation time for different amounts of coalitions
-    #costs_full_time = @elapsed coalitionCosts, imbalances, imbalancesDict = imbalance_costs(systemData, current_clients, start_hour, sim_days, stochasticData; printing=false)
-    costs_full_time = @elapsed coalitionCosts, imbalancesDict = calculate_CVaR(
-        systemData, current_clients, stochasticData; printing=false, chunkSize=chunkSize, alpha=alphaCVaR
-    )
-    #costs_Gately(systemData, current_clients, sim_days, stochasticData; printing=false)
-    #costs_Gately_time = @elapsed costs_Gately(systemData, current_clients, sim_days, stochasticData; printing=false)
-    costs_Gately_time = @elapsed calculate_CVaR_specific(
-        systemData, gatelyCoalitions, stochasticData, sim_days;  alpha=alphaCVaR
-    )
+    costs_full_time = @elapsed coalitionCosts, imbalances, imbalancesDict = imbalance_costs(systemData, current_clients, start_hour, sim_days, stochasticData; printing=false)
+    #costs_full_time = @elapsed coalitionCosts, imbalancesDict = calculate_CVaR(
+    #    systemData, current_clients, stochasticData; printing=false, chunkSize=chunkSize, alpha=alphaCVaR
+    #)
+    costs_Gately(systemData, current_clients, sim_days, stochasticData; printing=false)
+    costs_Gately_time = @elapsed calculate_costs_specific(systemData, gatelyCoalitions, stochasticData, sim_days)
+
+    #costs_Gately_time = @elapsed calculate_CVaR_specific(
+    #    systemData, gatelyCoalitions, stochasticData, sim_days;  alpha=alphaCVaR
+    #)
     
     println("  Calculating allocations...")
+    if length(current_clients) <= 12 && !("nucleolus" in allocations)
+        push!(allocations, "nucleolus")
+    end
     allocation_times = calculate_allocations(
         allocations, current_clients, coalitionCosts, imbalancesDict, systemData; printing = false, return_time = true
     )
@@ -147,8 +151,8 @@ p = plot(
     legend = :topleft,
     xticks = 1:22,
     #xlims = (1, 16),
-    #yscale = :log10,
-    #yticks = [10^0, 10^1, 10^2, 10^3, 10^4, 10^5]
+    yscale = :log10,
+    yticks = [10^(-1),10^0, 10^1, 10^2, 10^3, 10^4, 10^5]
 )
 
 # Plot the data
@@ -169,6 +173,9 @@ allocation_labels = Dict(
 
 unique_allocations = unique(timing_df.allocation)
 for allocation in unique_allocations
+    if allocation == "cost_based" 
+        continue
+    end
     alloc_data = filter(row -> row.allocation == allocation, timing_df)
     if nrow(alloc_data) > 0
         label, color = allocation_labels[allocation]
