@@ -33,7 +33,7 @@ end
 # Choose which calculations to run
 CVaRFull = false # CVaR calculation with all coalitions
 CVaRFullFileName = "temp.jls" # File name for full CVaR results
-CVaRSimple = true # CVaR calculation with simple coalitions
+CVaRSimple = false # CVaR calculation with simple coalitions
 CVaRSimpleFileName = "temp.jls" 
 costSimple = false # Cost only simple allocation
 costSimpleFileName = "temp.jls"
@@ -45,14 +45,14 @@ dailyPlotFileName = "temp.jls"
 # Choose which allocations to calculate
 allocations = [
     #"shapley",
-    "VCG",
-    "VCG_budget_balanced",
-    "gately",
-    "gately_interval",
+    #"VCG",
+    #"VCG_budget_balanced",
+    #"gately",
+    #"gately_interval",
     "full_cost", # Uniform price for cost
-    "reduced_cost",
+    #"reduced_cost",
     #"nucleolus",
-    "flat_rate",
+    #"flat_rate",
     #"cost_based" # Uniform price for CVaR
 ]
 
@@ -235,11 +235,6 @@ if costFull
     grand_coalition_Cost = coalitionCosts[grand_coalition]
 
     individual_Cost_sum = sum(coalitionCosts[[client]] for client in clients)
-
-    resProd >= resCap*capVar # If capVar = 1, resprod must be equal to resCap
-    addProd <= addCap*capVar # If capVar = 0, addprod must be 0
-    # addProd can only be larger than 0 if resProd=resCap
-
 
     println("Grand coalition Cost: ", grand_coalition_Cost)
     println("Sum of individual client Cost: ", individual_Cost_sum)
