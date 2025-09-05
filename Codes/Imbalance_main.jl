@@ -10,7 +10,7 @@ include("Game_theoretic_functions.jl")
 include("Plotting_functions.jl")
 
 # --- External Packages ---
-using Plots, Dates, Random, Combinatorics, StatsPlots, Serialization
+using Plots, Dates, Random, Combinatorics, Serialization #,StatsPlots
 GC.gc() # Run garbage collection to free memory, useful for repeat runs
 
 Random.seed!(1) # Set seed for reproducibility
@@ -35,7 +35,7 @@ CVaRFull = false # CVaR calculation with all coalitions
 CVaRFullFileName = "temp.jls" # File name for full CVaR results
 CVaRSimple = false # CVaR calculation with simple coalitions
 CVaRSimpleFileName = "temp.jls" 
-costSimple = false # Cost only simple allocation
+costSimple = true # Cost only simple allocation
 costSimpleFileName = "temp.jls"
 costFull = false # Cost all allocations
 costFullFileName = "temp.jls"
@@ -47,10 +47,10 @@ allocations = [
     #"shapley",
     #"VCG",
     #"VCG_budget_balanced",
-    #"gately",
+    "gately",
     #"gately_interval",
     "full_cost", # Uniform price for cost
-    #"reduced_cost",
+    "reduced_cost",
     #"nucleolus",
     #"flat_rate",
     #"cost_based" # Uniform price for CVaR
@@ -183,8 +183,9 @@ if costSimple
     println("Total costs calculated for all coalitions.")
     #println("Allocation costs: ", allocation_costs)
 
-    MAE = calculate_MAE(imbalancesDict, systemData, clients)
-    println("MAE: ", MAE)
+    WMAPE = calculate_WMAPE(imbalancesDict, systemData, clients)
+    println("Grand Coalition WMAPE: ", WMAPE)
+    singleton_WMAPE = Dict(client => calculate_WMAPE(imbalancesDict, systemData, [client]) for client in clients)
     println("Total coalition costs: ", coalitionCosts[clients])
     println("Total singleton costs: ", sum(coalitionCosts[[client]] for client in clients))
 
@@ -202,6 +203,7 @@ if costSimple
 
     # Save simple_plot_data to the "Results" subfolder
     serialize("Results/" * costSimpleFileName, simple_plot_data)
+    serialize("Results/demandScenPVScen_WMAPE.jls", singleton_WMAPE)
 
 end
 if costFull

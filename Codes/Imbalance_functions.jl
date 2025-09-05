@@ -355,16 +355,21 @@ function calculate_cvar_values(coalitions, period_interval_imbalance, imbalance_
     return cvar_dict, imbalance_dict
 end
 
-function calculate_MAE(imbalancesDict, systemData, coalition)
-    # This function calculates the mean absolute error (MAE) of the model and divides by average demand
+function calculate_WMAPE(imbalancesDict, systemData, coalition)
+    # This function calculates the Weighted Mean Absolute Percentage Error (WMAPE)
+    # WMAPE = sum(|actual - forecast|) / sum(|actual|) * 100
     # It compares the imbalances with the demand in systemData
 
     demand = sum(systemData["price_prod_demand_df"][!, client] for client in coalition)
-
-    MAE = sum(abs.(imbalancesDict[coalition]))/length(imbalancesDict[coalition])
-    percentMAE = MAE / (sum(demand)/length(imbalancesDict[coalition]))
-
-    return MAE
+    imbalances = imbalancesDict[coalition]
+    
+    # WMAPE calculation: sum of absolute errors divided by sum of actual values
+    total_absolute_error = sum(abs.(imbalances))
+    total_actual = sum(abs.(demand))
+    
+    WMAPE = (total_absolute_error / total_actual) * 100  # Convert to percentage
+    
+    return WMAPE
 end
 
 function calculate_imbalances_specific(systemData, coalitions, stochasticData, simDays)

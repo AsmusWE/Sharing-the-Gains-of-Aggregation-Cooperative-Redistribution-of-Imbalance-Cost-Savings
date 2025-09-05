@@ -17,7 +17,7 @@ function load_data()
     demand[!, :Z] .= 0
 
     # --- Define PV ownership ---
-    pvOwnershipDF = CSV.read("Data/Asset_master_data_asmus.csv", DataFrame; decimal=',')
+    pvOwnershipDF = CSV.read("Data/Asset_master_data_asmus.csv", DataFrame; decimal='.')
     clientPVOwnership = Dict(String(row.Customer) => row.a_ppa_pct for row in eachrow(pvOwnershipDF))
     # Note: Z is the solar park owner
 

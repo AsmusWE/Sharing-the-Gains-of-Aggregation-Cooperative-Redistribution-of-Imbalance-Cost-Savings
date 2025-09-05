@@ -39,19 +39,20 @@ allocation_labels = Dict(
     "shapley" => ("Shapley", :red),
     "VCG" => ("VCG", :purple),
     "VCG_budget_balanced" => ("VCG Budget Balanced", :orange),
-    "gately" => ("Gately Point", :grey),
+    "gately" => ("Gately Point", :black),
     "gately_interval" => ("Gately 15Min interval", :lightgrey),
-    "full_cost" => ("Uniform Price", :yellow),
-    "reduced_cost" => ("Reduced Cost", :darkblue),
+    "full_cost" => ("Uniform Price", :red),
+    "reduced_cost" => ("Asymmetric Price", :blue),
     "nucleolus" => ("Nucleolus", :green),
-    "cost_based" => ("Uniform Price", :yellow),
+    "cost_based" => ("Uniform Price", :red),
     "flat_rate" => ("Flat Rate", :cyan)
 )
 
-plotData = deserialize("Results/simple_plot_scenPV_scenDemand.jls")
+plotData = deserialize("Results/simpleScenResults.jls")
 #plotData = deserialize("Results/simple_plot_perfectPV_scenDemand.jls")
 #plotData = deserialize("Results/simple_plot_perfectPV_noiseDemand.jls")
 #plotData = deserialize("Results/CVaR_scenPV_scenDemand.jls")
+WMAPE = deserialize("Results/demandScenPVScen_WMAPE.jls")
 
 
 # Sort clients by total demand (highest to lowest)
@@ -67,7 +68,8 @@ plot_results(
     clients_sorted,
     plotData.start_hour,
     plotData.sim_days,
-    allocation_labels;
+    allocation_labels,
+    WMAPE;
     cvar = false
 )
 

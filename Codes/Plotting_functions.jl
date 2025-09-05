@@ -1,4 +1,21 @@
-using Plots, Serialization, CSV, DataFrames, StatsPlots
+using Plots, Serialization, CSV, DataFrames#, StatsPlots
+
+function create_alphabetic_client_mapping(clients)
+    # Create a mapping from original client names to alphabetic names (A, B, C, D...)
+    alphabet = ['A':'Z';]
+    mapping = Dict()
+    for (i, client) in enumerate(clients)
+        if i <= length(alphabet)
+            mapping[client] = string(alphabet[i])
+        else
+            # For more than 26 clients, use AA, AB, AC, etc.
+            first_letter_idx = div(i - 1, 26) + 1
+            second_letter_idx = ((i - 1) % 26) + 1
+            mapping[client] = string(alphabet[first_letter_idx]) * string(alphabet[second_letter_idx])
+        end
+    end
+    return mapping
+end
 
 function scale_distribution!(distribution, demand, clients)
     # Divide distribution factor by the sum of demand for each client
@@ -18,7 +35,8 @@ function plot_results(
     clients,
     start_hour,
     sim_days,
-    allocation_labels;
+    allocation_labels,
+    WMAPE;
     cvar = false
 )
     # Cutting data to the specified start hour and sim_days
@@ -29,6 +47,10 @@ function plot_results(
 
     # Use clients directly (sorting should be done in plotting_main)
     plotKeys = clients
+    
+    # Create alphabetic mapping for display
+    client_name_mapping = create_alphabetic_client_mapping(clients)
+    plotKeysAlphabetic = [client_name_mapping[client] for client in plotKeys]
 
     skip_allocations = ["VCG", "nucleolus"]
     # Filter allocations to exclude skipped allocations
@@ -45,13 +67,12 @@ function plot_results(
     #yMin = minimum([minimum(cost_MWh[alloc][k] for k in plotKeys) for alloc in allocations if haskey(cost_MWh, alloc)])
     if cvar == false
         p_fees_MWh = plot(
-            title="Imbalance cost per MWh demand\n Noise Demand Forecast, Perfect PV Forecast",
             #title="Imbalance cost per MWh demand",
             xlabel="Client",
             ylabel="€/MWh",
-            xticks=(1:length(plotKeys), plotKeys),
+            xticks=(1:length(plotKeys), plotKeysAlphabetic),
             xrotation=45,
-            legend=:topright,
+            #legend=:topright,
             #ylim = (0, yMax * 1.1),
             #titlefont=font(10)  # Reduce title font size
         )
@@ -61,7 +82,7 @@ function plot_results(
             title="CVaR contribution per MWh demand",
             xlabel="Client",
             ylabel="€/MWh",
-            xticks=(1:length(plotKeys), plotKeys),
+            xticks=(1:length(plotKeys), plotKeysAlphabetic),
             xrotation=45,
             legend=:topleft,
             ylim = (ymin-0.01, yMax * 1.1),
@@ -89,7 +110,7 @@ function plot_results(
         title="PV Coverage of Demand",
         xlabel="Client",
         ylabel="PV Coverage [%]",
-        xticks=(1:length(plotKeys), plotKeys),
+        xticks=(1:length(plotKeys), plotKeysAlphabetic),
         xrotation=45,
         ylim = (0, 210)
     )
@@ -125,12 +146,42 @@ function plot_results(
     end
     display(p_Cost_vs_pv)
 
+    # Plot Cost per MWh vs WMAPE
+    if cvar == false
+        p_Cost_vs_wmape = plot(
+            title="Imbalance cost per MWh vs WMAPE",
+            xlabel="WMAPE [%]",
+            ylabel="€/MWh",
+            legend=:outertopright,
+            ylim = (0, yMax * 1.1),
+        )
+    else
+        ymin = minimum([minimum(cost_MWh[alloc][k] for k in plotKeys) for alloc in allocations if haskey(cost_MWh, alloc)])
+        p_Cost_vs_wmape = plot(
+            title="CVaR contribution per MWh vs WMAPE",
+            xlabel="WMAPE [%]",
+            ylabel="€/MWh",
+            legend=:outertopright,
+            ylim = (ymin-0.05, yMax * 1.1),
+        )
+    end
+    
+    for alloc in allocations
+        if haskey(cost_MWh, alloc)
+            label, color = allocation_labels[alloc]
+            x_vals = [WMAPE[k] for k in plotKeys]
+            y_vals = [cost_MWh[alloc][k] for k in plotKeys]
+            scatter!(p_Cost_vs_wmape, x_vals, y_vals, label=label, color=color, alpha=0.7)
+        end
+    end
+    display(p_Cost_vs_wmape)
+
     # Total Cost
     if cvar == false
-        p_fees_total = plot(title="Total imbalance cost per client", xlabel="Client", ylabel="€", xticks=(1:length(plotKeys), plotKeys), xrotation=45, legend=:topright)
+        p_fees_total = plot(title="Total imbalance cost per client", xlabel="Client", ylabel="€", xticks=(1:length(plotKeys), plotKeysAlphabetic), xrotation=45, legend=:topright)
     else
         ymin = minimum([minimum(allocation_costs[alloc][k] for k in plotKeys) for alloc in allocations if haskey(allocation_costs, alloc)])
-        p_fees_total = plot(title="CVaR contribution total per client", xlabel="Client", ylabel="€", xticks=(1:length(plotKeys), plotKeys), xrotation=45, legend=:topright, ylim = (ymin-0.05, maximum([maximum(allocation_costs[alloc][k] for k in plotKeys) for alloc in allocations if haskey(allocation_costs, alloc)]) * 1.1))
+        p_fees_total = plot(title="CVaR contribution total per client", xlabel="Client", ylabel="€", xticks=(1:length(plotKeys), plotKeysAlphabetic), xrotation=45, legend=:topright, ylim = (ymin-0.05, maximum([maximum(allocation_costs[alloc][k] for k in plotKeys) for alloc in allocations if haskey(allocation_costs, alloc)]) * 1.1))
     end
     for alloc in allocations
         if haskey(allocation_costs, alloc)
@@ -161,7 +212,7 @@ function plot_results(
             title="Imbalance cost contribution vs individual cost\n Noise Demand Forecast, Perfect PV Forecast",
             xlabel="Client",
             ylabel="Relative cost [%]",
-            xticks=(1:length(plotKeys), plotKeys),
+            xticks=(1:length(plotKeys), plotKeysAlphabetic),
             xrotation=45,
             #ylim=(0, 105),
             #legend=:bottomleft
@@ -172,7 +223,7 @@ function plot_results(
             title="CVaR contribution vs individual CVaR",
             xlabel="Client",
             ylabel="Relative CVaR [%]",
-            xticks=(1:length(plotKeys), plotKeys),
+            xticks=(1:length(plotKeys), plotKeysAlphabetic),
             xrotation=45,
             ylim=(ymin-0.05, 105),
             legend=:bottomleft
@@ -235,9 +286,12 @@ function plot_results(
 
     # Plot total MWh demand per client
     total_MWh_demand = Dict(client => sum(dayData["price_prod_demand_df"][!, Symbol(client)]) for client in plotKeys)
-    p_total_demand = plot(title="Total MWh Demand per Client", xlabel="Client", ylabel="Total Demand [MWh]", xticks=(1:length(plotKeys), plotKeys), xrotation=45, legend=:topright)
+    p_total_demand = plot(
+        #title="Total MWh Demand per Client", 
+        xlabel="Client", ylabel="Total Demand [MWh]", xticks=(1:length(plotKeys), plotKeysAlphabetic), xrotation=45, legend=:topright
+    )
     plotVals_total_demand = [total_MWh_demand[k] for k in plotKeys]
-    bar!(p_total_demand, 1:length(plotKeys), plotVals_total_demand, label=false)
+    bar!(p_total_demand, 1:length(plotKeys), plotVals_total_demand, label=false, color=:black)
     display(p_total_demand)
 end
 
@@ -299,6 +353,10 @@ function plot_cost_difference(allocation_costs, clients, systemData)
     # Convert to vector for indexing
     filtered_allocations = collect(filtered_allocations)
     
+    # Create alphabetic mapping for display
+    client_name_mapping = create_alphabetic_client_mapping(clients)
+    clientsAlphabetic = [client_name_mapping[client] for client in clients]
+    
     # Calculate cost per MWh for each allocation
     cost_MWh = Dict()
     for alloc in filtered_allocations
@@ -328,7 +386,7 @@ function plot_cost_difference(allocation_costs, clients, systemData)
         title="Cost Increase: Percentage",
         xlabel="Client",
         ylabel="Percentage Increase [%]",
-        xticks=(1:length(clients), clients),
+        xticks=(1:length(clients), clientsAlphabetic),
         xrotation=45,
         color=:blue,
         legend=:none
@@ -341,7 +399,7 @@ function plot_cost_difference(allocation_costs, clients, systemData)
         title="Cost Increase: Absolute",
         xlabel="Client",
         ylabel="Cost Difference [€/MWh]",
-        xticks=(1:length(clients), clients),
+        xticks=(1:length(clients), clientsAlphabetic),
         xrotation=45,
         color=:red,
         legend=:none
@@ -349,13 +407,13 @@ function plot_cost_difference(allocation_costs, clients, systemData)
     display(p2)
     # Print a table with the most expensive and cheapest allocation for each client
     println("Client\tCheapest Allocation\tCheapest €/MWh\tMost Expensive Allocation\tMost Expensive €/MWh")
-    for client in clients
+    for (i, client) in enumerate(clients)
         min_alloc = argmin([cost_MWh[alloc][client] for alloc in filtered_allocations])
         max_alloc = argmax([cost_MWh[alloc][client] for alloc in filtered_allocations])
         cheapest_alloc = filtered_allocations[min_alloc]
         most_expensive_alloc = filtered_allocations[max_alloc]
         cheapest_cost = cost_MWh[cheapest_alloc][client]
         most_expensive_cost = cost_MWh[most_expensive_alloc][client]
-        println("$(client)\t$(cheapest_alloc)\t$(round(cheapest_cost, digits=2))\t$(most_expensive_alloc)\t$(round(most_expensive_cost, digits=2))")
+        println("$(clientsAlphabetic[i])\t$(cheapest_alloc)\t$(round(cheapest_cost, digits=2))\t$(most_expensive_alloc)\t$(round(most_expensive_cost, digits=2))")
     end
 end
