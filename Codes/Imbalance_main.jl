@@ -31,16 +31,8 @@ end
 # 1. Data Loading & Setup
 # =========================
 # Choose which calculations to run
-CVaRFull = false # CVaR calculation with all coalitions
-CVaRFullFileName = "temp.jls" # File name for full CVaR results
-CVaRSimple = false # CVaR calculation with simple coalitions
-CVaRSimpleFileName = "temp.jls" 
-costSimple = true # Cost only simple allocation
-costSimpleFileName = "temp.jls"
-costFull = false # Cost all allocations
-costFullFileName = "temp.jls"
-dailyPlot = false # Daily plot for cost, all allocations
-dailyPlotFileName = "temp.jls"
+FileName = "temp.jls"
+
 
 # Choose which allocations to calculate
 allocations = [
@@ -73,7 +65,7 @@ num_scenarios_demand = 5 # Number of scenarios for demand
 num_scenarios_price = 30 # Number of scenarios for imbalance spread
 spread_scens_length = 96 # Sets the length of the imbalance spread scenarios, will repeat after this if necessary
 chunkSize = 3 # Days processed at a time when calculating imbalance costs in the full coalition calculations, adjust based on memory
-alphaCVaR = 0.05 # CVaR confidence level
+alphaCVaR = 0.025 # CVaR confidence level
 
 stochasticData = Dict(
     # Accepted forecast types demand: "perfect", "scenarios", "noise"
@@ -99,180 +91,37 @@ demandData = set_period!(demandData, start_hour, sim_days)
 # =========================
 # 2. Imbalance Calculation and allocation
 # =========================
-if CVaRFull
-    # Remove allocation methods that are not suitable for CVaR
-    allocations = filter(x -> !(x in ["full_cost", "reduced_cost", "gately_interval"]), allocations)
-    CVaRDict, imbalancesDict = @time calculate_CVaR(
-        systemData, clients, stochasticData; printing=true, chunkSize=chunkSize, alpha=alphaCVaR
-    )
+# Remove allocation methods that are not suitable for cost+CVaR yet
+allocations = filter(x -> !(x in ["full_cost", "reduced_cost", "gately_interval"]), allocations)
+# Remove allocation methods that do not work with the simple calculations 
+allocations = filter(x -> !(x in ["shapley", "nucleolus"]), allocations)
+coalitions = sparse_coalitions(clients)
+println("Calculating total costs (regular costs + CVaR) for simple plot...")
+totalCostsDict, costsDict, cvarDict, imbalancesDict = @time calculate_total_costs_specific(
+    systemData, coalitions, stochasticData, sim_days; alpha=alphaCVaR
+)
 
-    allocation_costs = calculate_allocations(
-        allocations, clients, CVaRDict, imbalancesDict, systemData; printing = true, alpha=alphaCVaR
-    )
+allocation_costs = calculate_allocations(
+    allocations, clients, totalCostsDict, imbalancesDict, systemData; printing = true, alpha=alphaCVaR
+)
 
-    println("Checking stability for CVaR allocations...")
-    max_instability = Dict{String, Float64}()
-    for alloc in allocations
-        println("Checking stability for allocation: ", alloc)
-        max_instability[alloc] = check_stability(allocation_costs[alloc], CVaRDict, clients)
-    end
-    println("Max instabilities: ", max_instability)
+println("Total costs (regular + CVaR): ", totalCostsDict[clients])
+println("Regular costs only: ", costsDict[clients])
+println("CVaR only: ", cvarDict[clients])
 
-    println("Total CVaR: ", CVaRDict[clients])
-    println("VCG CVaR: ", sum(values(allocation_costs["VCG"])))
+# Save cost+CVaR data for plotting 
+cost_cvar_plot_data = SimplePlotData(
+    allocations,
+    systemData,
+    allocation_costs,
+    totalCostsDict,
+    imbalancesDict,
+    clients,
+    start_hour,
+    sim_days
+)
 
-    # Save CVaR data for plotting 
-    cvar_plot_data = SimplePlotData(
-        allocations,
-        systemData,
-        allocation_costs,
-        CVaRDict,
-        imbalancesDict,
-        clients,
-        start_hour,
-        sim_days
-    )
-    serialize("Results/" * CVaRFullFileName, cvar_plot_data)
-end
-if CVaRSimple 
-    # Remove allocation methods that are not suitable for CVaR yet
-    allocations = filter(x -> !(x in ["full_cost", "reduced_cost", "gately_interval"]), allocations)
-    # Remove allocation methods that do not work with the simple calculations 
-    allocations = filter(x -> !(x in ["shapley", "nucleolus"]), allocations)
-    coalitions = sparse_coalitions(clients)
-    println("Calculating CVaR for simple plot...")
-    CVaRDict, imbalancesDict = @time calculate_CVaR_specific(
-        systemData, coalitions, stochasticData, sim_days;  alpha=alphaCVaR
-    )
-
-    allocation_costs = calculate_allocations(
-        allocations, clients, CVaRDict, imbalancesDict, systemData; printing = true, alpha=alphaCVaR
-    )
-
-    println("Total CVaR: ", CVaRDict[clients])
-    println("VCG CVaR: ", sum(values(allocation_costs["VCG"])))
-
-    # Save CVaR data for plotting 
-    cvar_plot_data = SimplePlotData(
-        allocations,
-        systemData,
-        allocation_costs,
-        CVaRDict,
-        imbalancesDict,
-        clients,
-        start_hour,
-        sim_days
-    )
-
-
-    serialize("Results/" * CVaRSimpleFileName, cvar_plot_data)
-end
-if costSimple
-    # Remove complex allocations for simple plot
-    allocations = filter(x -> !(x in ["shapley", "nucleolus"]), allocations)
-    # Remove CVaR allocations for simple plot
-    allocations = filter(x -> !(x in ["cost_based"]), allocations)
-    println("Calculating imbalance costs for full plot (simple)...")
-    coalitions = sparse_coalitions(clients)
-    coalitionCosts, imbalancesDict = @time calculate_costs_specific(
-        systemData, coalitions, stochasticData, sim_days
-    )
-    allocation_costs = calculate_allocations(
-        allocations, clients, coalitionCosts, imbalancesDict, systemData; printing = true
-    )
-    println("Total costs calculated for all coalitions.")
-    #println("Allocation costs: ", allocation_costs)
-
-    WMAPE = calculate_WMAPE(imbalancesDict, systemData, clients)
-    println("Grand Coalition WMAPE: ", WMAPE)
-    singleton_WMAPE = Dict(client => calculate_WMAPE(imbalancesDict, systemData, [client]) for client in clients)
-    println("Total coalition costs: ", coalitionCosts[clients])
-    println("Total singleton costs: ", sum(coalitionCosts[[client]] for client in clients))
-
-    # Create an instance of SimplePlotData
-    simple_plot_data = SimplePlotData(
-        allocations,
-        systemData,
-        allocation_costs,
-        coalitionCosts,
-        imbalancesDict,
-        clients,
-        start_hour,
-        sim_days
-    )
-
-    # Save simple_plot_data to the "Results" subfolder
-    serialize("Results/" * costSimpleFileName, simple_plot_data)
-    serialize("Results/demandScenPVScen_WMAPE.jls", singleton_WMAPE)
-
-end
-if costFull
-    coalitions = collect(combinations(clients))
-    # Calculating costs
-    println("Calculating imbalance costs...")
-    coalitionCosts, imbalances, imbalancesDict = @time imbalance_costs(systemData, clients, start_hour, sim_days, stochasticData; printing=true, chunkSize=chunkSize)
-
-    # Checking MAE
-    MAE = calculate_MAE(imbalancesDict, systemData, clients)
-    println("MAE: ", MAE)
-
-    # Calculating allocations
-    println("Calculating allocations...")
-    #daily_cost_MWh_imbalance, allocation_costs, imbalances, hourly_imbalances = @time allocation_variance(allocations, clients, coalitions, systemData, start_hour, sim_days)
-
-    allocation_costs = calculate_allocations(
-        allocations, clients, coalitionCosts, imbalancesDict, systemData; printing = true
-        )
-
-    # Checking stability
-    max_instability = Dict{String, Float64}()
-    for alloc in allocations
-        println("Checking stability for allocation: ", alloc)
-        max_instability[alloc] = check_stability(allocation_costs[alloc], coalitionCosts, clients)
-    end
-    println("Max instabilities: ", max_instability)
-
-    # Compare the sum of individual client CVaR with the grand coalition CVaR
-    grand_coalition = clients
-    grand_coalition_Cost = coalitionCosts[grand_coalition]
-
-    individual_Cost_sum = sum(coalitionCosts[[client]] for client in clients)
-
-    println("Grand coalition Cost: ", grand_coalition_Cost)
-    println("Sum of individual client Cost: ", individual_Cost_sum)
-    #println("Difference: ", grand_coalition_imbalance - individual_imbalance_sum)
-    if "VCG" in allocations
-        VCG_cost = sum(values(allocation_costs["VCG"]))
-        println("VCG cost: ", VCG_cost)
-        println("VCG subsidies: ", grand_coalition_Cost - VCG_cost)
-    end
-
-    # Define a struct to hold all relevant plotting data
-    struct PlotData
-        allocations::Vector{String}
-        systemData::Dict{String, Any}
-        allocation_costs::Dict{String, Any}
-        imbalances::Dict{Any, Any}
-        clients::Vector{String}
-        start_hour::DateTime
-        sim_days::Int
-        daily_cost_MWh_imbalance::Any
-    end
-
-    # Create an instance of PlotData
-    plot_data = PlotData(
-        allocations,
-        systemData,
-        allocation_costs,
-        coalitionCosts,
-        clients,
-        start_hour,
-        sim_days,
-        0 # Placeholder for daily_cost_MWh_imbalance, as it is not calculated in this script
-    )
-    # Save plot_data to the "Results" subfolder
-    serialize("Results/" * costFullFileName, plot_data)
-end
+serialize("Results/" * FileName, cost_cvar_plot_data)
 
 if dailyPlot
     allocations = filter(x -> x != "nucleolus", allocations)
