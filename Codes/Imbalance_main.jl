@@ -61,16 +61,16 @@ systemData, clients, demandData = load_data()
 firstHour = minimum(systemData["price_prod_demand_df"][!, :HourUTC_datetime])
 lastHour = maximum(systemData["price_prod_demand_df"][!, :HourUTC_datetime])
 # Filter out smallest clients for full plot all coalitions, down from 22 to 19
-#clients = filter(x -> !(x in ["X", "W", "N"]), clients)
+clients = filter(x -> !(x in ["X", "W", "N"]), clients)
 # Filter down to 12 for nucleolus
-#clients = filter(x -> !(x in ["F", "V", "J","E", "T", "O", "Y"]), clients)
+clients = filter(x -> !(x in ["F", "V", "J","E", "T", "O", "Y"]), clients)
 
 start_hour = DateTime(2025, 4, 04, 00, 0, 0)
 sim_days = Int(floor((lastHour - start_hour) / Dates.Day(1)))-1 # Calculate number of days from start_hour to lastHour
 println("Simulation period: ", start_hour, " to ", start_hour + Dates.Day(sim_days - 1))
 println("Number of simulation days: ", sim_days)
 num_scenarios_demand = 5 # Number of scenarios for demand
-num_scenarios_price = 1 # Number of scenarios for imbalance spread
+num_scenarios_price = 30 # Number of scenarios for imbalance spread
 spread_scens_length = 96 # Sets the length of the imbalance spread scenarios, will repeat after this if necessary
 chunkSize = 3 # Days processed at a time when calculating imbalance costs in the full coalition calculations, adjust based on memory
 alphaCVaR = 0.05 # CVaR confidence level

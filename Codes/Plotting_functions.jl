@@ -149,19 +149,19 @@ function plot_results(
     # Plot Cost per MWh vs WMAPE
     if cvar == false
         p_Cost_vs_wmape = plot(
-            title="Imbalance cost per MWh vs WMAPE",
+            #title="Imbalance cost per MWh vs WMAPE",
             xlabel="WMAPE [%]",
             ylabel="€/MWh",
-            legend=:outertopright,
+            #legend=:outertopright,
             ylim = (0, yMax * 1.1),
         )
     else
         ymin = minimum([minimum(cost_MWh[alloc][k] for k in plotKeys) for alloc in allocations if haskey(cost_MWh, alloc)])
         p_Cost_vs_wmape = plot(
-            title="CVaR contribution per MWh vs WMAPE",
+            #title="CVaR contribution per MWh vs WMAPE",
             xlabel="WMAPE [%]",
             ylabel="€/MWh",
-            legend=:outertopright,
+            #legend=:outertopright,
             ylim = (ymin-0.05, yMax * 1.1),
         )
     end
@@ -209,9 +209,9 @@ function plot_results(
     #lower_ylim = min(0.0, min_val - 0.05)  # Add a small margin below min_val, but not above 0
     if cvar == false
         p_CostRatio = plot(
-            title="Imbalance cost contribution vs individual cost\n Noise Demand Forecast, Perfect PV Forecast",
+            #title="Imbalance cost contribution vs individual cost\n Noise Demand Forecast, Perfect PV Forecast",
             xlabel="Client",
-            ylabel="Relative cost [%]",
+            ylabel="Allocation relative to singleton cost [%]",
             xticks=(1:length(plotKeys), plotKeysAlphabetic),
             xrotation=45,
             #ylim=(0, 105),

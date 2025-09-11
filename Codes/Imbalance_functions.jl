@@ -39,7 +39,7 @@ function get_pv_forecast(stochasticData, systemData, T)
     end
 end
 
-function optimize_imbalance(coalition, systemData, stochasticData)
+function optimize_imbalance(coalition, systemData, stochasticData; alpha=0.05)
     clientPVOwnership = getindex.(Ref(systemData["clientPVOwnership"]), coalition)
     TimeHorizon = length(systemData["price_prod_demand_df"][!, "HourUTC_datetime"])
     T = min(TimeHorizon, size(systemData["price_prod_demand_df"])[1])
@@ -60,7 +60,8 @@ function optimize_imbalance(coalition, systemData, stochasticData)
     SDemand = length(demand[1,:])  # Number of demand scenarios
     probDemand = 1/SDemand
     SSpread = length(spreadScenarios[:,1])  # Number of spread scenarios
-    probSpread = 1/SSpread
+    probSpread = 1/SSpread  
+    beta = 0
 
     # Set up optimization model
     #model = Model(HiGHS.Optimizer)
@@ -72,14 +73,22 @@ function optimize_imbalance(coalition, systemData, stochasticData)
     @variable(model, pos_imbal[1:T, 1:SDemand] >= 0) # Positive imbalance
     @variable(model, neg_imbal[1:T, 1:SDemand] >= 0) # Negative imbalance
     @variable(model, bid[1:T]) # Bid amount
+    @variable(model, xeta) # Value at Risk (VaR)
+    @variable(model, eta[1:SSpread, 1:SDemand] >= 0) # Auxiliary variables for CVaR
 
     # Two-price objective
-    @objective(model, Min, probSpread * probDemand * sum(((dominantDirection[sSpread,t])*pos_imbal[t, s]*(spreadScenarios[sSpread,t]) + (1-dominantDirection[sSpread,t])*neg_imbal[t, s]*(-spreadScenarios[sSpread,t])) for t in 1:T for s in 1:SDemand for sSpread in 1:SSpread)) # Objective function
+    @objective(model, Min, (1-beta)*probSpread * probDemand * sum(
+                            dominantDirection[sSpread,t]*pos_imbal[t, s]*spreadScenarios[sSpread,t] + (1-dominantDirection[sSpread,t])*neg_imbal[t, s]*(-spreadScenarios[sSpread,t]) for t in 1:T for s in 1:SDemand for sSpread in 1:SSpread)
+                            + beta*(xeta-(1/(1-alpha)*sum(probSpread * probDemand * eta[sSpread, s] for s in 1:SDemand for sSpread in 1:SSpread))))
+
     #@objective(model, Min, probDemand * sum((pos_imbal[t, s] + neg_imbal[t, s]) for t in 1:T for s in 1:SDemand))
 
     @constraint(model, [t = 1:T, s = 1:SDemand],
                 imbal[t, s] == demand[t, s] - prod[t] - bid[t])
     @constraint(model, [t = 1:T, s = 1:SDemand], pos_imbal[t, s] - neg_imbal[t, s] == imbal[t, s])
+
+    @constraint(model, [sSpread = 1:SSpread, s = 1:SDemand],
+                eta[sSpread, s] >= sum(dominantDirection[sSpread,t]*pos_imbal[t, s]*spreadScenarios[sSpread,t] + (1-dominantDirection[sSpread,t])*neg_imbal[t, s]*(-spreadScenarios[sSpread,t]) for t in 1:T) - xeta)
     solution = optimize!(model)
     if termination_status(model) == MOI.OPTIMAL
         #println("Optimal solution found")
@@ -115,7 +124,7 @@ function calculate_imbalance(systemData, clients, stochasticData)
     return coalitions, demand_sum_vec, scaled_pvProd_vec, bids_dict
 end
 
-function calculate_bids(coalitions, systemData, stochasticData)
+function calculate_bids(coalitions, systemData, stochasticData; fullOpt = true)
     # This function calculates the bids for each coalition combination
     bids = Dict()
     
@@ -124,14 +133,23 @@ function calculate_bids(coalitions, systemData, stochasticData)
     for client in individual_clients
         bids[client] = optimize_imbalance(client, systemData, stochasticData)
     end
-    
-    # Calculate bids for coalitions by summing individual bids
-    for coalition in coalitions
-        if length(coalition) > 1
-            bids[coalition] = sum(bids[[client]] for client in coalition)
+
+    if fullOpt
+        # Full optimization for all coalitions (computationally expensive)
+        for coalition in coalitions
+            if length(coalition) > 1
+                bids[coalition] = optimize_imbalance(coalition, systemData, stochasticData)
+            end
+        end
+    else
+        # Calculate bids for coalitions by summing individual bids (will not give the same answer as full optimization when using CVaR)
+        for coalition in coalitions
+            if length(coalition) > 1
+                bids[coalition] = sum(bids[[client]] for client in coalition)
+            end
         end
     end
-    
+
     return bids
 end
 
