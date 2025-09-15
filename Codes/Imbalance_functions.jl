@@ -39,7 +39,7 @@ function get_pv_forecast(stochasticData, systemData, T)
     end
 end
 
-function optimize_imbalance(coalition, systemData, stochasticData; alpha=0.05)
+function optimize_imbalance(coalition, systemData, stochasticData; alpha=0.05, beta = 0.5)
     clientPVOwnership = getindex.(Ref(systemData["clientPVOwnership"]), coalition)
     TimeHorizon = length(systemData["price_prod_demand_df"][!, "HourUTC_datetime"])
     T = min(TimeHorizon, size(systemData["price_prod_demand_df"])[1])
@@ -61,7 +61,6 @@ function optimize_imbalance(coalition, systemData, stochasticData; alpha=0.05)
     probDemand = 1/SDemand
     SSpread = length(spreadScenarios[:,1])  # Number of spread scenarios
     probSpread = 1/SSpread  
-    beta = 0
 
     # Set up optimization model
     #model = Model(HiGHS.Optimizer)
@@ -76,10 +75,12 @@ function optimize_imbalance(coalition, systemData, stochasticData; alpha=0.05)
     @variable(model, xeta) # Value at Risk (VaR)
     @variable(model, eta[1:SSpread, 1:SDemand] >= 0) # Auxiliary variables for CVaR
 
-    # Two-price objective
+    # Two-price objective 
     @objective(model, Min, (1-beta)*probSpread * probDemand * sum(
                             dominantDirection[sSpread,t]*pos_imbal[t, s]*spreadScenarios[sSpread,t] + (1-dominantDirection[sSpread,t])*neg_imbal[t, s]*(-spreadScenarios[sSpread,t]) for t in 1:T for s in 1:SDemand for sSpread in 1:SSpread)
-                            + beta*(xeta-(1/(1-alpha)*sum(probSpread * probDemand * eta[sSpread, s] for s in 1:SDemand for sSpread in 1:SSpread))))
+                            + beta*(xeta
+                            + # Changed this from minus to plus, is this correct?
+                            (1/(1-alpha)*sum(probSpread * probDemand * eta[sSpread, s] for s in 1:SDemand for sSpread in 1:SSpread))))
 
     #@objective(model, Min, probDemand * sum((pos_imbal[t, s] + neg_imbal[t, s]) for t in 1:T for s in 1:SDemand))
 
@@ -108,21 +109,21 @@ function get_imbalance(bids, pvProd, demand)
     return bids[1:min_length] + pvProd[1:min_length] - demand[1:min_length]
 end
 
-function calculate_bids(coalitions, systemData, stochasticData; fullOpt = true, alpha=0.05)
+function calculate_bids(coalitions, systemData, stochasticData; fullOpt = true, alpha=0.05, beta = 0.5)
     # This function calculates the bids for each coalition combination
     bids = Dict()
     
     # Calculate bids for individual clients first
     individual_clients = filter(c -> length(c) == 1, coalitions)
     for client in individual_clients
-        bids[client] = optimize_imbalance(client, systemData, stochasticData; alpha=alpha)
+        bids[client] = @time optimize_imbalance(client, systemData, stochasticData; alpha=alpha, beta=beta)
     end
 
     if fullOpt
         # Full optimization for all coalitions (computationally expensive)
         for coalition in coalitions
             if length(coalition) > 1
-                bids[coalition] = optimize_imbalance(coalition, systemData, stochasticData; alpha=alpha)
+                bids[coalition] = optimize_imbalance(coalition, systemData, stochasticData; alpha=alpha, beta=beta)
             end
         end
     else
@@ -201,13 +202,13 @@ function calculate_WMAPE(imbalancesDict, systemData, coalition)
     return WMAPE
 end
 
-function calculate_imbalances_specific(systemData, coalitions, stochasticData, simDays; alpha=0.05)
+function calculate_imbalances_specific(systemData, coalitions, stochasticData, simDays; alpha=0.05, beta = 0.5)
     # Calculate imbalances for specific coalitions
     T = simDays * 96 
     # Get all clients
     all_clients = coalitions[argmax(length.(coalitions))]
     
-    bids = calculate_bids(coalitions, systemData, stochasticData; fullOpt = true, alpha = alpha)
+    bids = calculate_bids(coalitions, systemData, stochasticData; fullOpt = true, alpha = alpha, beta = beta)
     
     # Pre-calculate actual demand and PV for each client
     actual_demand_per_client = Dict()
@@ -238,7 +239,7 @@ function calculate_imbalances_specific(systemData, coalitions, stochasticData, s
     return imbalancesDict
 end
 
-function calculate_total_costs_specific(systemData, coalitions, stochasticData, simDays; alpha=0.05, cost_weight=1.0, cvar_weight=1.0)
+function calculate_total_costs_specific(systemData, coalitions, stochasticData, simDays; alpha=0.05, cost_weight=1.0, cvar_weight=1.0, beta = 0.5)
     # Calculate total costs combining both regular imbalance costs and CVaR
     # alpha: confidence level for CVaR calculation
     # cost_weight: weight for regular imbalance costs in the total
@@ -252,8 +253,8 @@ function calculate_total_costs_specific(systemData, coalitions, stochasticData, 
     println("Calculating total costs (regular costs + CVaR) for each coalition...")
     
     # Calculate regular imbalance costs
-    costs_dict, imbalancesDict = calculate_costs_specific(systemData, coalitions, stochasticData, simDays)
-    
+    costs_dict, imbalancesDict = calculate_costs_specific(systemData, coalitions, stochasticData, simDays; alpha=alpha, beta=beta)
+
     # Calculate CVaR for the same coalitions using the same imbalances
     T = simDays * 96
     imbalance_spread = systemData["price_prod_demand_df"][1:T, "ImbalanceSpreadEUR"]
@@ -314,3 +315,32 @@ function sparse_coalitions(clients)
 end
 
 
+function calculate_costs_specific(systemData, coalitions, stochasticData, simDays; alpha=0.05, beta=0.5)
+    # Calculate imbalance costs for specific coalitions
+    T = simDays * 96 
+    imbalance_spread = systemData["price_prod_demand_df"][1:T, "ImbalanceSpreadEUR"]
+    dominantDirection = systemData["price_prod_demand_df"][1:T, "DominatingDirection"]
+    
+    # Get imbalances for all coalitions
+    imbalancesDict = calculate_imbalances_specific(systemData, coalitions, stochasticData, simDays; alpha=alpha, beta=beta)
+    # Calculate costs for each coalition using the imbalances
+    costs_dict = Dict()
+    abs_spread = abs.(imbalance_spread)  # Pre-compute absolute values
+    println("Calculating costs for each coalition...")
+    for coalition in coalitions
+        actual_imbalances = imbalancesDict[coalition]
+        
+        # Calculate imbalance costs using the two-price system
+        total_cost = 0.0
+        for j in eachindex(dominantDirection)
+            imbalance_with_dir = actual_imbalances[j] * dominantDirection[j]
+            if imbalance_with_dir > 0
+                total_cost += imbalance_with_dir * abs_spread[j]
+            end
+        end
+        
+        costs_dict[coalition] = total_cost
+    end
+
+    return costs_dict, imbalancesDict
+end

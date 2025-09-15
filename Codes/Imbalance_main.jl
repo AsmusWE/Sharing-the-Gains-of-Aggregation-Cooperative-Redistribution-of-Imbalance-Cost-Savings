@@ -37,7 +37,7 @@ FileName = "temp.jls"
 # Choose which allocations to calculate
 allocations = [
     #"shapley",
-    #"VCG",
+    "VCG",
     #"VCG_budget_balanced",
     "gately",
     #"gately_interval",
@@ -66,6 +66,8 @@ num_scenarios_price = 30 # Number of scenarios for imbalance spread
 spread_scens_length = 96 # Sets the length of the imbalance spread scenarios, will repeat after this if necessary
 chunkSize = 3 # Days processed at a time when calculating imbalance costs in the full coalition calculations, adjust based on memory
 alphaCVaR = 0.025 # CVaR confidence level
+beta = 0.5 # Weighting factor between cost and CVaR in total cost calculation
+dailyPlot = false # Whether to run the daily calculations
 
 stochasticData = Dict(
     # Accepted forecast types demand: "perfect", "scenarios", "noise"
