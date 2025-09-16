@@ -71,7 +71,9 @@ end
 
 function generate_scenarios_imbalance_spread(systemData, start_hour, scenario_length; num_scenarios = 100)
     imbalance_spread = systemData["price_prod_demand_df"][:, :ImbalanceSpreadEUR]
-    scenarios = zeros(num_scenarios, scenario_length)
+    spot_price = systemData["price_prod_demand_df"][:, :SpotPriceEUR]
+    spread_scenarios = zeros(num_scenarios, scenario_length)
+    spot_scenarios = zeros(num_scenarios, scenario_length)
 
     # Only keep data from before the start_hour
     start_idx = findfirst(systemData["price_prod_demand_df"][:, :HourUTC_datetime] .> start_hour)
@@ -80,6 +82,7 @@ function generate_scenarios_imbalance_spread(systemData, start_hour, scenario_le
     end
     data_length = start_idx - 1  # Length of the data before the start_hour
     imbalance_spread = imbalance_spread[1:data_length]
+    spot_price = spot_price[1:data_length]
 
     # Check if we have enough data to generate scenarios of the required length
     if data_length < scenario_length* num_scenarios
@@ -97,10 +100,11 @@ function generate_scenarios_imbalance_spread(systemData, start_hour, scenario_le
         num_valid_starts = div(max_start_multiple_96 - 1, 96) + 1
         random_multiple = rand(0:num_valid_starts-1)
         start_idx = random_multiple * 96 + 1
-        scenarios[i, :] = imbalance_spread[start_idx:start_idx + scenario_length - 1]
+        spread_scenarios[i, :] = imbalance_spread[start_idx:start_idx + scenario_length - 1]
+        spot_scenarios[i, :] = spot_price[start_idx:start_idx + scenario_length - 1]
     end
 
-    return scenarios
+    return spread_scenarios, spot_scenarios
 end
 
 function generate_dominant_direction(spreadScenarios)

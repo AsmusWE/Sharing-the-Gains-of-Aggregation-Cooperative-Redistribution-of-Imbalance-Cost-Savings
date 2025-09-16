@@ -58,15 +58,14 @@ clients = filter(x -> !(x in ["X", "W", "N"]), clients)
 clients = filter(x -> !(x in ["F", "V", "J","E", "T", "O", "Y"]), clients)
 
 start_hour = DateTime(2025, 4, 04, 00, 0, 0)
-sim_days = Int(floor((lastHour - start_hour) / Dates.Day(1)))-1 # Calculate number of days from start_hour to lastHour
-println("Simulation period: ", start_hour, " to ", start_hour + Dates.Day(sim_days - 1))
+sim_days = Int(floor((lastHour - start_hour) / Dates.Day(1)))-106 # Calculate number of days from start_hour to lastHour
+println("Simulation period: ", start_hour, " to ", start_hour + Dates.Day(sim_days))
 println("Number of simulation days: ", sim_days)
 num_scenarios_demand = 5 # Number of scenarios for demand
-num_scenarios_price = 30 # Number of scenarios for imbalance spread
-spread_scens_length = 96 # Sets the length of the imbalance spread scenarios, will repeat after this if necessary
-chunkSize = 3 # Days processed at a time when calculating imbalance costs in the full coalition calculations, adjust based on memory
-alphaCVaR = 0.025 # CVaR confidence level
-beta = 0.5 # Weighting factor between cost and CVaR in total cost calculation
+num_scenarios_price = 50 # Number of scenarios for imbalance spread
+spread_scens_length = 1 # Sets the length of the imbalance spread scenarios, will repeat after this if necessary
+alphaCVaR = 0.01 # CVaR confidence level
+beta = 0 # Weighting factor between cost and CVaR in total cost calculation
 dailyPlot = false # Whether to run the daily calculations
 
 stochasticData = Dict(
@@ -82,7 +81,7 @@ if stochasticData["demand_forecast"] == "scenarios"
     stochasticData["demand_scenarios"] = generate_scenarios_demand_rolling(clients, demandData, start_hour, sim_days; num_scenarios=num_scenarios_demand)
 end
 
-stochasticData["imbalance_spread"] = generate_scenarios_imbalance_spread(systemData, start_hour, spread_scens_length; num_scenarios=num_scenarios_price)
+stochasticData["imbalance_spread"], stochasticData["spot_price"] = generate_scenarios_imbalance_spread(systemData, start_hour, spread_scens_length; num_scenarios=num_scenarios_price)
 stochasticData["dominantDirection01"] = generate_dominant_direction(stochasticData["imbalance_spread"])
 
 # Cut systemData and demandData to the simulation period

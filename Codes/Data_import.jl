@@ -93,7 +93,7 @@ function load_data()
     priceData[!, :DominatingDirection] = ifelse.(coalesce.(priceData[!, :ImbalanceSpreadEUR], 0.0) .> 0, 1,
                                                          ifelse.(coalesce.(priceData[!, :ImbalanceSpreadEUR], 0.0) .< 0, -1, 0))
     
-    priceData = select(priceData, [:HourUTC_datetime, :ImbalanceSpreadEUR, :DominatingDirection])
+    priceData = select(priceData, [:HourUTC_datetime, :ImbalanceSpreadEUR, :DominatingDirection, :SpotPriceEUR])
 
     # Merge price data with combined data
     combinedData = innerjoin(combinedData, priceData, on=:HourUTC_datetime)
