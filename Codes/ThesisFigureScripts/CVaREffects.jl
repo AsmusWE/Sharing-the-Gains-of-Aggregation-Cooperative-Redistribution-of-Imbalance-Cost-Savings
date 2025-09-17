@@ -29,17 +29,18 @@ lastHour = maximum(systemData["price_prod_demand_df"][!, :HourUTC_datetime])
 # Filter clients for computational efficiency
 clients = filter(x -> !(x in ["X", "W", "N"]), clients)  # Remove smallest clients
 clients = filter(x -> !(x in ["F", "V", "J","E", "T", "O", "Y"]), clients)  # Further filter to 12 clients
+clients = ["A","G"]
 
 start_hour = DateTime(2025, 4, 04, 00, 0, 0)
-sim_days = 50 
-println("Simulation period: ", start_hour, " to ", start_hour + Dates.Day(sim_days - 1))
+sim_days = 3
+println("Simulation period: ", start_hour, " to ", start_hour + Dates.Day(sim_days))
 println("Number of simulation days: ", sim_days)
 println("Number of clients: ", length(clients))
 
 # Simulation parameters
-num_scenarios_demand = 10
-num_scenarios_price = 30
-spread_scens_length = 96
+num_scenarios_demand = 12
+num_scenarios_price = 100
+spread_scens_length = 1
 alphaCVaR = 0.05  # CVaR confidence level
 beta_values = 0.0:0.1:1.0  # Beta values from 0 to 1 in steps of 0.1
 
@@ -54,7 +55,7 @@ if stochasticData["demand_forecast"] == "scenarios"
     stochasticData["demand_scenarios"] = generate_scenarios_demand_rolling(clients, demandData, start_hour, sim_days; num_scenarios=num_scenarios_demand)
 end
 
-stochasticData["imbalance_spread"] = generate_scenarios_imbalance_spread(systemData, start_hour, spread_scens_length; num_scenarios=num_scenarios_price)
+stochasticData["imbalance_spread"], stochasticData["spot_price"] = generate_scenarios_imbalance_spread(systemData, start_hour, spread_scens_length; num_scenarios=num_scenarios_price)
 stochasticData["dominantDirection01"] = generate_dominant_direction(stochasticData["imbalance_spread"])
 
 # Cut systemData and demandData to the simulation period
@@ -98,7 +99,7 @@ for (beta_idx, beta) in enumerate(beta_values)
     
     # Calculate total costs, regular costs, and CVaR for current beta
     totalCostsDict, costsDict, cvarDict, imbalancesDict = calculate_total_costs_specific(
-        systemData, coalitions_to_analyze, stochasticData, sim_days; alpha=alphaCVaR
+        systemData, coalitions_to_analyze, stochasticData, sim_days; alpha=alphaCVaR, beta = beta
     )
     
     # Store results for each coalition
@@ -147,7 +148,21 @@ p3 = plot(title="Total Cost vs Beta", xlabel="Beta (CVaR weight)", ylabel="Total
 plot!(p3, results["beta_values"], results["total_costs"][full_coalition_name], 
       linewidth=3, marker=:diamond, color=:green, markersize=6)
 
+# Plot 4: Regular Cost vs CVaR Cost with Beta values as scatter points
+p4 = scatter(title="Realized Total Cost vs Realized 5% Tail Cost", xlabel="Total Cost", ylabel="5% tail Cost")
+scatter!(p4, results["regular_costs"][full_coalition_name], results["cvar_costs"][full_coalition_name],
+         marker=:circle, color=:purple, markersize=8, alpha=0.7,
+         markerstrokecolor=:black, markerstrokewidth=1)
+
+# Add text annotations for beta values
+for (i, beta) in enumerate(results["beta_values"])
+    annotate!(p4, results["regular_costs"][full_coalition_name][i], 
+              results["cvar_costs"][full_coalition_name][i], 
+              text("β=$(round(beta, digits=1))", 8, :center, :bottom))
+end
+
 # Display all plots
-display(p1)
-display(p2)
-display(p3)
+#display(p1)
+#display(p2)
+#display(p3)
+display(p4)

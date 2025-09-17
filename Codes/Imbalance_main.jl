@@ -56,15 +56,16 @@ lastHour = maximum(systemData["price_prod_demand_df"][!, :HourUTC_datetime])
 clients = filter(x -> !(x in ["X", "W", "N"]), clients)
 # Filter down to 12 for nucleolus
 clients = filter(x -> !(x in ["F", "V", "J","E", "T", "O", "Y"]), clients)
+clients = ["A","G"]
 
 start_hour = DateTime(2025, 4, 04, 00, 0, 0)
 sim_days = Int(floor((lastHour - start_hour) / Dates.Day(1)))-106 # Calculate number of days from start_hour to lastHour
 println("Simulation period: ", start_hour, " to ", start_hour + Dates.Day(sim_days))
 println("Number of simulation days: ", sim_days)
-num_scenarios_demand = 5 # Number of scenarios for demand
-num_scenarios_price = 50 # Number of scenarios for imbalance spread
+num_scenarios_demand = 12 # Number of scenarios for demand
+num_scenarios_price = 100 # Number of scenarios for imbalance spread
 spread_scens_length = 1 # Sets the length of the imbalance spread scenarios, will repeat after this if necessary
-alphaCVaR = 0.01 # CVaR confidence level
+alphaCVaR = 0.05 # CVaR confidence level
 beta = 0 # Weighting factor between cost and CVaR in total cost calculation
 dailyPlot = false # Whether to run the daily calculations
 
@@ -99,7 +100,7 @@ allocations = filter(x -> !(x in ["shapley", "nucleolus"]), allocations)
 coalitions = sparse_coalitions(clients)
 println("Calculating total costs (regular costs + CVaR) for simple plot...")
 totalCostsDict, costsDict, cvarDict, imbalancesDict = @time calculate_total_costs_specific(
-    systemData, coalitions, stochasticData, sim_days; alpha=alphaCVaR
+    systemData, coalitions, stochasticData, sim_days; alpha=alphaCVaR, beta = beta
 )
 
 allocation_costs = calculate_allocations(

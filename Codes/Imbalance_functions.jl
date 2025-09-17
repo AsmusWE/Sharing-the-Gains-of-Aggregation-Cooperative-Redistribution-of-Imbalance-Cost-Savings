@@ -85,12 +85,10 @@ function optimize_imbalance(coalition, systemData, stochasticData; alpha=0.05, b
 
     # Two-price objective, minimize cost
     @objective(model, Min, (1-beta)*probSpread * probDemand * sum( (bid[t] + neg_imbal[t, sSpread, s] - pos_imbal[t, sSpread, s]) * spotScenarios[sSpread] # DA bid payment and spot price part of imbalance (this cost is covered by the client)
-                            + dominantDirection[sSpread,t]*(pos_imbal[t, sSpread, s]*spreadScenarios[sSpread,t]) # Cost of positive imbalance
-                            + (1-dominantDirection[sSpread,t])*(-neg_imbal[t, sSpread, s])*spreadScenarios[sSpread,t] # Cost of negative imbalance
-                            for t in 1:T for s in 1:SDemand for sSpread in 1:SSpread)
-                            + beta*(xeta
-                            + # Changed this from minus to plus, is this correct?
-                            (1/(1-alpha)*sum(probSpread * probDemand * eta[sSpread, s] for s in 1:SDemand for sSpread in 1:SSpread))))
+                                + dominantDirection[sSpread,t]*(pos_imbal[t, sSpread, s]*spreadScenarios[sSpread,t]) # Cost of positive imbalance
+                                + (1-dominantDirection[sSpread,t])*(-neg_imbal[t, sSpread, s])*spreadScenarios[sSpread,t] # Cost of negative imbalance
+                                for t in 1:T for s in 1:SDemand for sSpread in 1:SSpread)
+                            + beta*(xeta + (1/(1-alpha)*sum(probSpread * probDemand * eta[sSpread, s] for s in 1:SDemand for sSpread in 1:SSpread))))
 
 
     #@objective(model, Min, (1-beta)*probSpread * probDemand * sum(
@@ -110,13 +108,16 @@ function optimize_imbalance(coalition, systemData, stochasticData; alpha=0.05, b
     #@constraint(model, [sSpread = 1:SSpread, s = 1:SDemand],
     #            eta[sSpread, s] >= sum(dominantDirection[sSpread,t]*pos_imbal[t, s]*spreadScenarios[sSpread,t] + (1-dominantDirection[sSpread,t])*neg_imbal[t, s]*(-spreadScenarios[sSpread,t]) for t in 1:T) - xeta)
     @constraint(model, [sSpread = 1:SSpread, s = 1:SDemand],
-                eta[sSpread, s] >= sum((bid[t] + neg_imbal[t, sSpread, s] - pos_imbal[t, sSpread, s]) * spotScenarios[sSpread] # DA bid payment and spot price part of imbalance (this cost is covered by the client)
-                            + dominantDirection[sSpread,t]*(pos_imbal[t, sSpread, s]*spreadScenarios[sSpread,t]) # Cost of positive imbalance
-                            + (1-dominantDirection[sSpread,t])*(-neg_imbal[t, sSpread, s])*spreadScenarios[sSpread,t] # Cost of negative imbalance
-                            for t in 1:T) - xeta)
+                            -sum((bid[t] + neg_imbal[t, sSpread, s] - pos_imbal[t, sSpread, s]) * spotScenarios[sSpread] # DA bid payment and spot price part of imbalance (this cost is covered by the client)
+                                + dominantDirection[sSpread,t]*(pos_imbal[t, sSpread, s]*spreadScenarios[sSpread,t]) # Cost of positive imbalance
+                                + (1-dominantDirection[sSpread,t])*(-neg_imbal[t, sSpread, s])*spreadScenarios[sSpread,t] # Cost of negative imbalance
+                                for t in 1:T) 
+                            + xeta
+                            - eta[sSpread, s] >= 0)
     
     solution = optimize!(model)
     if termination_status(model) == MOI.OPTIMAL
+        #println(value.(bid))
         return value.(bid)
     else
         println("No optimal solution found")
@@ -357,9 +358,12 @@ function calculate_costs_specific(systemData, coalitions, stochasticData, simDay
         total_cost = 0.0
         for j in eachindex(dominantDirection)
             imbalance_with_dir = actual_imbalances[j] * dominantDirection[j] #This will be a positive number if the imbalance is in the same direction as the dominant direction
+            coalitionPvProd = systemData["price_prod_demand_df"][j,"SolarMWh"] * sum(systemData["clientPVOwnership"][client] for client in coalition)
             if imbalance_with_dir > 0
-                if abs_spread[j] > spot_price[j]
+                if abs_spread[j] > spot_price[j] && imbalance_with_dir <= coalitionPvProd
                     total_cost += imbalance_with_dir * spot_price[j]
+                elseif abs_spread[j] > spot_price[j]
+                    total_cost += coalitionPvProd * spot_price[j] + (imbalance_with_dir - coalitionPvProd) * abs_spread[j]
                 else
                     total_cost += imbalance_with_dir * abs_spread[j]
                 end
