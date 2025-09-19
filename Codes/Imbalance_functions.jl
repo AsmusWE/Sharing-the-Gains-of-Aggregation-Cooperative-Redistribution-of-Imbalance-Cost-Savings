@@ -76,11 +76,11 @@ function optimize_imbalance(coalition, systemData, stochasticData; alpha=0.05, b
     @variable(model, bid[1:T]) # Bid amount
     @variable(model, xeta) # Value at Risk (VaR) with bounds
     @variable(model, eta[1:SSpread, 1:SDemand] >= 0) # Auxiliary variables for CVaR
-    @variable(model, PVCurtailment[1:T, 1:SSpread, 1:SDemand] >= 0) #  We assume that we can curtail production.
+    #@variable(model, PVCurtailment[1:T, 1:SSpread, 1:SDemand] >= 0) #  We assume that we can curtail production.
     # Set upper bounds for PV curtailment
-    for t in 1:T, sSpread in 1:SSpread, s in 1:SDemand
-        set_upper_bound(PVCurtailment[t, sSpread, s], prod[t])
-    end
+    #for t in 1:T, sSpread in 1:SSpread, s in 1:SDemand
+    #    set_upper_bound(PVCurtailment[t, sSpread, s], prod[t])
+    #end
     
 
     # Two-price objective, minimize cost
@@ -99,8 +99,11 @@ function optimize_imbalance(coalition, systemData, stochasticData; alpha=0.05, b
 
     #@objective(model, Min, probDemand * sum((pos_imbal[t, s] + neg_imbal[t, s]) for t in 1:T for s in 1:SDemand))
 
+    #@constraint(model, [t = 1:T, s = 1:SDemand, sSpread = 1:SSpread],
+    #            demand[t, s] - prod[t] - bid[t] + PVCurtailment[t, sSpread, s] - imbal[t, sSpread, s] == 0)
     @constraint(model, [t = 1:T, s = 1:SDemand, sSpread = 1:SSpread],
-                demand[t, s] - prod[t] - bid[t] + PVCurtailment[t, sSpread, s] - imbal[t, sSpread, s] == 0)
+                demand[t, s] - prod[t] - bid[t] - imbal[t, sSpread, s] == 0)
+
 
     @constraint(model, [t = 1:T, s = 1:SDemand, sSpread = 1:SSpread], 
                 neg_imbal[t, sSpread, s] - pos_imbal[t, sSpread, s] == imbal[t, sSpread, s])
@@ -353,22 +356,24 @@ function calculate_costs_specific(systemData, coalitions, stochasticData, simDay
     println("Calculating costs for each coalition...")
     for coalition in coalitions
         actual_imbalances = imbalancesDict[coalition]
-        
+        imbalance_costs = actual_imbalances .* imbalance_spread
+        imbalance_costs = max.(0, imbalance_costs) # Only consider positive costs for two price scheme
+        total_cost = sum(imbalance_costs)
         # Calculate imbalance costs using the two-price system
         total_cost = 0.0
-        for j in eachindex(dominantDirection)
-            imbalance_with_dir = actual_imbalances[j] * dominantDirection[j] #This will be a positive number if the imbalance is in the same direction as the dominant direction
-            coalitionPvProd = systemData["price_prod_demand_df"][j,"SolarMWh"] * sum(systemData["clientPVOwnership"][client] for client in coalition)
-            if imbalance_with_dir > 0
-                if abs_spread[j] > spot_price[j] && imbalance_with_dir <= coalitionPvProd
-                    total_cost += imbalance_with_dir * spot_price[j]
-                elseif abs_spread[j] > spot_price[j]
-                    total_cost += coalitionPvProd * spot_price[j] + (imbalance_with_dir - coalitionPvProd) * abs_spread[j]
-                else
-                    total_cost += imbalance_with_dir * abs_spread[j]
-                end
-            end
-        end
+        #for j in eachindex(dominantDirection)
+        #    imbalance_with_dir = actual_imbalances[j] * dominantDirection[j] #This will be a positive number if the imbalance is in the same direction as the dominant direction
+        #    coalitionPvProd = systemData["price_prod_demand_df"][j,"SolarMWh"] * sum(systemData["clientPVOwnership"][client] for client in coalition)
+        #    if imbalance_with_dir > 0
+        #        if -abs_spread[j] > spot_price[j] && imbalance_with_dir <= coalitionPvProd
+        #            total_cost += imbalance_with_dir * spot_price[j]
+        #        elseif -abs_spread[j] > spot_price[j]
+        #            total_cost += coalitionPvProd * spot_price[j] + (imbalance_with_dir - coalitionPvProd) * abs_spread[j]
+        #        else
+        #            total_cost += imbalance_with_dir * abs_spread[j]
+        #        end
+        #    end
+        #end
         
         costs_dict[coalition] = total_cost
     end
