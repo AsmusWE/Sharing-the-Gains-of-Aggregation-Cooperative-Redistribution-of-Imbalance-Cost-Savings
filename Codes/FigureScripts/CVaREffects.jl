@@ -31,15 +31,15 @@ clients = filter(x -> !(x in ["X", "W", "N"]), clients)  # Remove smallest clien
 clients = filter(x -> !(x in ["F", "V", "J","E", "T", "O", "Y"]), clients)  # Further filter to 12 clients
 clients = ["A","G"]
 
-start_hour = DateTime(2024, 04, 01, 00, 0, 0)
-sim_days = 10
+start_hour = DateTime(2024, 06, 01, 00, 0, 0)
+sim_days = 5
 println("Simulation period: ", start_hour, " to ", start_hour + Dates.Day(sim_days))
 println("Number of simulation days: ", sim_days)
 println("Number of clients: ", length(clients))
 
 # Simulation parameters
-num_scenarios_demand = 12
-num_scenarios_price = 100
+num_scenarios_demand = 3
+num_scenarios_price = 10
 spread_scens_length = 1
 alphaCVaR = 0.05  # CVaR confidence level
 beta_values = 0.0:0.1:1.0  # Beta values from 0 to 1 in steps of 0.1

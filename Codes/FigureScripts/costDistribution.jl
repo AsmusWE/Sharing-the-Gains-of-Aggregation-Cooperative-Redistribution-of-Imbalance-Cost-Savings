@@ -30,12 +30,12 @@ clients = filter(x -> !(x in ["X", "W", "N"]), clients)
 clients = filter(x -> !(x in ["F", "V", "J","E", "T", "O", "Y"]), clients)
 clients = ["A","G"]
 
-start_hour = DateTime(2025, 4, 04, 00, 0, 0)
-sim_days = 1 # Calculate number of days from start_hour to lastHour
+start_hour = DateTime(2024, 06, 01, 00, 0, 0)
+sim_days = 10 # Calculate number of days from start_hour to lastHour
 println("Simulation period: ", start_hour, " to ", start_hour + Dates.Day(sim_days))
 println("Number of simulation days: ", sim_days)
-num_scenarios_demand = 12 # Number of scenarios for demand
-num_scenarios_price = 100 # Number of scenarios for imbalance spread
+num_scenarios_demand = 3 # Number of scenarios for demand
+num_scenarios_price = 10 # Number of scenarios for imbalance spread
 spread_scens_length = 1 # Sets the length of the imbalance spread scenarios, will repeat after this if necessary
 alphaCVaR = 0.05 # CVaR confidence level
 beta = 1 # Weighting factor between cost and CVaR in total cost calculation
@@ -65,7 +65,8 @@ demandData = set_period!(demandData, start_hour, sim_days)
 # =========================
 # 2. Imbalance Calculation and allocation
 # =========================
-coalitions = sparse_coalitions(clients)
+#coalitions = sparse_coalitions(clients)
+coalitions = [clients]
 println("Calculating total costs (regular costs + CVaR) for simple plot...")
 totalCostsDict, costsDict, cvarDict, imbalancesDict = @time calculate_total_costs_specific(
     systemData, coalitions, stochasticData, sim_days; alpha=alphaCVaR, beta = beta
@@ -73,9 +74,9 @@ totalCostsDict, costsDict, cvarDict, imbalancesDict = @time calculate_total_cost
 
 
 # --- Plot cost distribution of the grand coalition ---
-T = sim_days * 96
+T = sim_days * 24
 imbalance_spread = systemData["price_prod_demand_df"][1:T, "ImbalanceSpreadEUR"]
-grand_imbalances = imbalancesDict[grandCoalition]
+grand_imbalances = imbalancesDict[clients]
 grand_costs_timeseries = grand_imbalances .* imbalance_spread
 grand_costs_timeseries = max.(0, grand_costs_timeseries) # Only consider positive costs for two price scheme
 

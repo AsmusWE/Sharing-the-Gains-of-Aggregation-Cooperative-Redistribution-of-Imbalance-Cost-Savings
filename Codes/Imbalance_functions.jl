@@ -43,7 +43,6 @@ function optimize_imbalance(coalition, systemData, stochasticData; alpha=0.05, b
     clientPVOwnership = getindex.(Ref(systemData["clientPVOwnership"]), coalition)
     TimeHorizon = length(systemData["price_prod_demand_df"][!, "HourUTC_datetime"])
     T = min(TimeHorizon, size(systemData["price_prod_demand_df"])[1])
-    
     demand = get_demand_forecast(coalition, stochasticData, systemData, TimeHorizon)
     pvProduction = get_pv_forecast(stochasticData, systemData, T)
     spreadScenarios, spotScenarios = stochasticData["imbalance_spread"], stochasticData["spot_price"]
@@ -84,7 +83,7 @@ function optimize_imbalance(coalition, systemData, stochasticData; alpha=0.05, b
     
 
     # Two-price objective, minimize cost
-    @objective(model, Min, (1-beta)*probSpread * probDemand * sum( (bid[t] + neg_imbal[t, sSpread, s] - pos_imbal[t, sSpread, s]) * spotScenarios[sSpread] # DA bid payment and spot price part of imbalance (this cost is covered by the client)
+    @objective(model, Min, (1-beta)*probSpread * probDemand * sum( (bid[t] + neg_imbal[t, sSpread, s] - pos_imbal[t, sSpread, s]) * spotScenarios[sSpread, t] # DA bid payment and spot price part of imbalance (this cost is covered by the client)
                                 + dominantDirection[sSpread,t]*(pos_imbal[t, sSpread, s]*spreadScenarios[sSpread,t]) # Cost of positive imbalance
                                 + (1-dominantDirection[sSpread,t])*(-neg_imbal[t, sSpread, s])*spreadScenarios[sSpread,t] # Cost of negative imbalance
                                 for t in 1:T for s in 1:SDemand for sSpread in 1:SSpread)
@@ -111,7 +110,7 @@ function optimize_imbalance(coalition, systemData, stochasticData; alpha=0.05, b
     #@constraint(model, [sSpread = 1:SSpread, s = 1:SDemand],
     #            eta[sSpread, s] >= sum(dominantDirection[sSpread,t]*pos_imbal[t, s]*spreadScenarios[sSpread,t] + (1-dominantDirection[sSpread,t])*neg_imbal[t, s]*(-spreadScenarios[sSpread,t]) for t in 1:T) - xeta)
     @constraint(model, [sSpread = 1:SSpread, s = 1:SDemand],
-                            -sum((bid[t] + neg_imbal[t, sSpread, s] - pos_imbal[t, sSpread, s]) * spotScenarios[sSpread] # DA bid payment and spot price part of imbalance (this cost is covered by the client)
+                            -sum((bid[t] + neg_imbal[t, sSpread, s] - pos_imbal[t, sSpread, s]) * spotScenarios[sSpread, t] # DA bid payment and spot price part of imbalance (this cost is covered by the client)
                                 + dominantDirection[sSpread,t]*(pos_imbal[t, sSpread, s]*spreadScenarios[sSpread,t]) # Cost of positive imbalance
                                 + (1-dominantDirection[sSpread,t])*(-neg_imbal[t, sSpread, s])*spreadScenarios[sSpread,t] # Cost of negative imbalance
                                 for t in 1:T) 
@@ -120,9 +119,9 @@ function optimize_imbalance(coalition, systemData, stochasticData; alpha=0.05, b
     
     solution = optimize!(model)
     if termination_status(model) == MOI.OPTIMAL
-        #println(value.(bid))
+        #print(objective_value(model), "\n")
         if extendedOutput
-            cost = probSpread * probDemand * (sum( (value(bid[t]) + value(neg_imbal[t, sSpread, s]) - value(pos_imbal[t, sSpread, s])) * spotScenarios[sSpread] # DA bid payment and spot price part of imbalance (this cost is covered by the client)
+            cost = probSpread * probDemand * (sum( (value(bid[t]) + value(neg_imbal[t, sSpread, s]) - value(pos_imbal[t, sSpread, s])) * spotScenarios[sSpread, t] # DA bid payment and spot price part of imbalance (this cost is covered by the client)
                                 + dominantDirection[sSpread,t]*(value(pos_imbal[t, sSpread, s])*spreadScenarios[sSpread,t]) # Cost of positive imbalance
                                 + (1-dominantDirection[sSpread,t])*(-value(neg_imbal[t, sSpread, s]))*spreadScenarios[sSpread,t] # Cost of negative imbalance
                                 for t in 1:T for s in 1:SDemand for sSpread in 1:SSpread))
@@ -272,7 +271,7 @@ function calculate_imbalances_specific(systemData, coalitions, stochasticData, s
         imbalancesDict[coalition] = actual_imbalances
     end
 
-    return imbalancesDict
+    return imbalancesDict, bids
 end
 
 function calculate_total_costs_specific(systemData, coalitions, stochasticData, simDays; alpha=0.05, cost_weight=1.0, cvar_weight=1.0, beta = 0.5)
@@ -288,40 +287,50 @@ function calculate_total_costs_specific(systemData, coalitions, stochasticData, 
     
     println("Calculating total costs (regular costs + CVaR) for each coalition...")
     
-    # Calculate regular imbalance costs
-    costs_dict, imbalancesDict = calculate_costs_specific(systemData, coalitions, stochasticData, simDays; alpha=alpha, beta=beta)
-
-    # Calculate CVaR for the same coalitions using the same imbalances
+    # Get imbalances and bids for all coalitions (unified calculation)
     T = simDays * 24
     imbalance_spread = systemData["price_prod_demand_df"][1:T, "ImbalanceSpreadEUR"]
+    spot_price = systemData["price_prod_demand_df"][1:T, "SpotPriceEUR"]
+    
+    # Get imbalances for all coalitions
+    imbalancesDict, bids = calculate_imbalances_specific(systemData, coalitions, stochasticData, simDays; alpha=alpha, beta=beta)
     
     # Calculate CVaR for each coalition
     intervals = T
     var_index = ceil(Int, intervals * alpha) # Index for the Value at Risk (VaR) threshold
     
     # Pre-allocate results
+    costs_dict = Dict{Any, Float64}()
     cvar_dict = Dict{Any, Float64}()
     total_costs_dict = Dict{Any, Float64}()
+    sizehint!(costs_dict, length(coalitions))
     sizehint!(cvar_dict, length(coalitions))
     sizehint!(total_costs_dict, length(coalitions))
     
-    println("Calculating CVaR and combining with regular costs...")
+    println("Calculating costs and CVaR in unified loop...")
     for coalition in coalitions
-        # Get imbalances for this coalition (already calculated)
+        # Get imbalances for this coalition
         actual_imbalances = imbalancesDict[coalition]
         
-        # Calculate costs for CVaR calculation
+        # Calculate imbalance costs (used for both regular costs and CVaR)
         imbalance_costs = actual_imbalances .* imbalance_spread
-        partialsort!(imbalance_costs, 1:var_index, rev=true)
-        #cvar_value = mean(imbalance_costs[1:var_index])
-        cvar_value = sum(imbalance_costs[1:var_index]) # This is not the CVaR, but the total cost in the worst alpha% scenarios
-
-        # Store CVaR results
-        cvar_dict[coalition] = cvar_value
         
+        # Calculate regular costs (two-price system - only positive costs)
+        regular_imbalance_costs = max.(0, imbalance_costs)
+        spot_price_costs = bids[coalition] .* spot_price
+        regular_cost = sum(regular_imbalance_costs + spot_price_costs)
+        costs_dict[coalition] = regular_cost
+        
+        # Calculate CVaR using all imbalance costs (including negative)
+        cvar_costs = copy(regular_imbalance_costs + spot_price_costs)  # Use all costs for CVaR calculation
+        partialsort!(cvar_costs, 1:var_index, rev=true)
+        #cvar_value = mean(cvar_costs[1:var_index])
+        tail_cost = sum(cvar_costs[1:var_index])
+        #cvar_dict[coalition] = cvar_value
+        cvar_dict[coalition] = tail_cost
+
         # Calculate total costs as weighted sum of regular costs and CVaR
-        regular_cost = costs_dict[coalition]
-        total_cost = cost_weight * regular_cost + cvar_weight * cvar_value
+        total_cost = cost_weight * regular_cost + cvar_weight * tail_cost
         total_costs_dict[coalition] = total_cost
     end
     println("Cost calculation completed.")
@@ -358,7 +367,7 @@ function calculate_costs_specific(systemData, coalitions, stochasticData, simDay
     dominantDirection = systemData["price_prod_demand_df"][1:T, "DominatingDirection"]
     
     # Get imbalances for all coalitions
-    imbalancesDict = calculate_imbalances_specific(systemData, coalitions, stochasticData, simDays; alpha=alpha, beta=beta)
+    imbalancesDict, bids = calculate_imbalances_specific(systemData, coalitions, stochasticData, simDays; alpha=alpha, beta=beta)
     # Calculate costs for each coalition using the imbalances
     costs_dict = Dict()
     abs_spread = abs.(imbalance_spread)  # Pre-compute absolute values
@@ -368,7 +377,8 @@ function calculate_costs_specific(systemData, coalitions, stochasticData, simDay
         actual_imbalances = imbalancesDict[coalition]
         imbalance_costs = actual_imbalances .* imbalance_spread
         imbalance_costs = max.(0, imbalance_costs) # Only consider positive costs for two price scheme
-        total_cost = sum(imbalance_costs)
+        spot_price_costs = bids[coalition] .* spot_price
+        total_cost = sum(imbalance_costs + spot_price_costs)
         # Calculate imbalance costs using the two-price system
         #total_cost = 0.0
         #for j in eachindex(dominantDirection)
