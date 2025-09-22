@@ -196,7 +196,7 @@ end
 function set_period!(systemData::Dict{String, Any}, startDay, days)
     # Set up time period for the given number of days
     # This function is used when systemData is passed, it is a dictionary
-    intervals_per_day = 96  # 15-min intervals per day
+    intervals_per_day = 24  # 1-hour intervals per day
     intervals = days * intervals_per_day
     return create_time_period_data(systemData, startDay, intervals)
 end
@@ -204,7 +204,7 @@ end
 function set_period!(demandData::DataFrame, startDay, days)
     # Set up time period for the given number of days
     # This function is used when demandData is passed, it is a DataFrame
-    intervals_per_day = 96  # 15-min intervals per day
+    intervals_per_day = 24  # 1-hour intervals per day
     intervals = days * intervals_per_day
     start_interval = findfirst(x -> x >= startDay, demandData[!, "HourUTC_datetime"])
     
@@ -240,7 +240,7 @@ end
 
 function calculate_imbalances_specific(systemData, coalitions, stochasticData, simDays; alpha=0.05, beta = 0.5)
     # Calculate imbalances for specific coalitions
-    T = simDays * 96 
+    T = simDays * 24 
     # Get all clients
     all_clients = coalitions[argmax(length.(coalitions))]
     
@@ -292,7 +292,7 @@ function calculate_total_costs_specific(systemData, coalitions, stochasticData, 
     costs_dict, imbalancesDict = calculate_costs_specific(systemData, coalitions, stochasticData, simDays; alpha=alpha, beta=beta)
 
     # Calculate CVaR for the same coalitions using the same imbalances
-    T = simDays * 96
+    T = simDays * 24
     imbalance_spread = systemData["price_prod_demand_df"][1:T, "ImbalanceSpreadEUR"]
     
     # Calculate CVaR for each coalition
@@ -353,7 +353,7 @@ end
 
 function calculate_costs_specific(systemData, coalitions, stochasticData, simDays; alpha=0.05, beta=0.5)
     # Calculate imbalance costs for specific coalitions
-    T = simDays * 96 
+    T = simDays * 24
     imbalance_spread = systemData["price_prod_demand_df"][1:T, "ImbalanceSpreadEUR"]
     dominantDirection = systemData["price_prod_demand_df"][1:T, "DominatingDirection"]
     

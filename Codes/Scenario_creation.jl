@@ -52,9 +52,9 @@ function generate_scenarios_demand_rolling(clients, demandDF, start_hour, sim_da
     if start_idx === nothing
         error("No value after start_hour $start_hour found in demandDF[:HourUTC_datetime]")
     end
-    scen_length = sim_days * 96  # 96 time steps per day, sim_days days
+    scen_length = sim_days * 24  # 24 time steps per day, sim_days days
     scenarios_dict = Dict()
-    scenario_offset = 96*7 # 96 time steps per day, 7 days in a week. 
+    scenario_offset = 24*7 # 24 time steps per day, 7 days in a week. 
     for client in clients
         # Initialize an array to store scenarios for the client
         client_scenarios = zeros(scen_length, num_scenarios)
@@ -91,15 +91,15 @@ function generate_scenarios_imbalance_spread(systemData, start_hour, scenario_le
 
     # Generate scenarios by randomly selecting consecutive sequences from the historical data
     for i in 1:num_scenarios
-        # Randomly select a starting index that is a multiple of 96 (ensuring start at 00:00)
+        # Randomly select a starting index that is a multiple of 24 (ensuring start at 00:00)
         # and ensuring we have enough data for the full scenario length
         max_start_idx = data_length - scenario_length + 1
-        # Find the maximum multiple of 96 that is <= max_start_idx
-        max_start_multiple_96 = div(max_start_idx - 1, 96) * 96 + 1
-        # Randomly select from valid multiples of 96
-        num_valid_starts = div(max_start_multiple_96 - 1, 96) + 1
+        # Find the maximum multiple of 24 that is <= max_start_idx
+        max_start_multiple_24 = div(max_start_idx - 1, 24) * 24 + 1
+        # Randomly select from valid multiples of 24
+        num_valid_starts = div(max_start_multiple_24 - 1, 24) + 1
         random_multiple = rand(0:num_valid_starts-1)
-        start_idx = random_multiple * 96 + 1
+        start_idx = random_multiple * 24 + 1
         spread_scenarios[i, :] = imbalance_spread[start_idx:start_idx + scenario_length - 1]
         spot_scenarios[i, :] = spot_price[start_idx:start_idx + scenario_length - 1]
     end

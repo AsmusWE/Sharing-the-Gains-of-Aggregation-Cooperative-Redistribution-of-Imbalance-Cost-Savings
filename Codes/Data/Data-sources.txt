@@ -1,3 +1,4 @@
 https://www.energidataservice.dk/tso-electricity/ProductionMunicipalityHour Municipality nr. 706 
 https://www.energidataservice.dk/tso-electricity/Forecasts_Hour
-https://www.energidataservice.dk/tso-electricity/ImbalancePrice
+https://www.energidataservice.dk/tso-electricity/ImbalancePrice #15 minute ImbalancePrice
+https://www.energidataservice.dk/tso-electricity/RegulatingBalancePowerdata 1 hour ImbalancePrice

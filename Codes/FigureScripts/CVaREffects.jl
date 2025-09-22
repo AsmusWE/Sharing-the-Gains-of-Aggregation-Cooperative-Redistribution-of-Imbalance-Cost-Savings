@@ -31,8 +31,8 @@ clients = filter(x -> !(x in ["X", "W", "N"]), clients)  # Remove smallest clien
 clients = filter(x -> !(x in ["F", "V", "J","E", "T", "O", "Y"]), clients)  # Further filter to 12 clients
 clients = ["A","G"]
 
-start_hour = DateTime(2025, 4, 04, 00, 0, 0)
-sim_days = 4
+start_hour = DateTime(2024, 04, 01, 00, 0, 0)
+sim_days = 10
 println("Simulation period: ", start_hour, " to ", start_hour + Dates.Day(sim_days))
 println("Number of simulation days: ", sim_days)
 println("Number of clients: ", length(clients))

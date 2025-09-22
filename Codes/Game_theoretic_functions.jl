@@ -74,7 +74,7 @@ function allocation_variance(
     # Calculate imbalances once for the entire period, then slice by day for allocations
     # This ensures consistency with the fullPlotSimple approach
     
-    intervals_per_day = 96 # 15-min intervals per day
+    intervals_per_day = 24 # 15-min intervals per day
     
     # Use sparse coalitions instead of all combinations for better performance
     coalitions = sparse_coalitions(clients)

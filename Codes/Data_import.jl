@@ -54,49 +54,79 @@ function load_data()
     combinedData = select(combinedData, Cols(:HourUTC_datetime, :SolarMWh, clients_without_missing_data..., :PVForecast))
     demand = select(demand, Cols(:HourUTC_datetime, :Z, clients_without_missing_data...))
 
-    # --- Change to 15 minute resolution for combinedData ---
-    value_cols = names(combinedData, Not(:HourUTC_datetime))
-    N = nrow(combinedData)
-    repeats = 4
-    # Repeat each row 4 times
-    expanded = combinedData[repeat(1:N, inner=repeats), :]
-    # Add 15-min offset to each repeated row
-    expanded.:HourUTC_datetime .+= Minute.(15 .* repeat(0:3, outer=N))
-    # Divide value columns by 4
-    expanded[:, value_cols] .= expanded[:, value_cols] ./ 4
-    combinedData = expanded
-    sort!(combinedData, :HourUTC_datetime)
-
-    # --- Change demand to 15 minute resolution in the same way ---
-    demand_value_cols = names(demand, Not([:HourUTC_datetime, :Z]))
-    N_demand = nrow(demand)
-    expanded_demand = demand[repeat(1:N_demand, inner=repeats), :]
-    expanded_demand.:HourUTC_datetime .+= Minute.(15 .* repeat(0:3, outer=N_demand))
-    expanded_demand[:, demand_value_cols] .= expanded_demand[:, demand_value_cols] ./ 4
-    demand = expanded_demand
-    sort!(demand, :HourUTC_datetime)
-
-    # --- Add price data ---
-    priceData = CSV.read("Data/ImbalancePrice.csv", DataFrame, decimal=',')
-    priceData[!, :HourUTC_datetime] = DateTime.(priceData[:, :TimeUTC], DateFormat("yyyy-mm-dd HH:MM:SS"))
-    priceData = select(priceData, [:HourUTC_datetime, :ImbalancePriceEUR, :SpotPriceEUR, :DominatingDirection])
-    priceData[!, :ImbalanceSpreadEUR] = priceData[!, :ImbalancePriceEUR] .- priceData[!, :SpotPriceEUR]
-    # Fill missing ImbalanceSpreadEUR values with 0.0
-    priceData[!, :ImbalanceSpreadEUR] = coalesce.(priceData[!, :ImbalanceSpreadEUR], 0.0)
     
-    # Fill missing DominatingDirection values based on ImbalanceSpreadEUR
-    #priceData[!, :DominatingDirection] = coalesce.(priceData[!, :DominatingDirection], 
-    #                                              sign.(priceData[!, :ImbalanceSpreadEUR]))
-    # Generate new DominatingDirection column based on ImbalanceSpreadEUR
-    # This is done because of errors in the dominatingDirection data
-    # If there are missing price values, dominatingDirection is set to 0
-    priceData[!, :DominatingDirection] = ifelse.(coalesce.(priceData[!, :ImbalanceSpreadEUR], 0.0) .> 0, 1,
-                                                         ifelse.(coalesce.(priceData[!, :ImbalanceSpreadEUR], 0.0) .< 0, -1, 0))
-    
-    priceData = select(priceData, [:HourUTC_datetime, :ImbalanceSpreadEUR, :DominatingDirection, :SpotPriceEUR])
+    fifteenMinRes = false
+    if fifteenMinRes
+        # --- Change to 15 minute resolution for combinedData ---
+        value_cols = names(combinedData, Not(:HourUTC_datetime))
+        N = nrow(combinedData)
+        repeats = 4
+        # Repeat each row 4 times
+        expanded = combinedData[repeat(1:N, inner=repeats), :]
+        # Add 15-min offset to each repeated row
+        expanded.:HourUTC_datetime .+= Minute.(15 .* repeat(0:3, outer=N))
+        # Divide value columns by 4
+        expanded[:, value_cols] .= expanded[:, value_cols] ./ 4
+        combinedData = expanded
+        sort!(combinedData, :HourUTC_datetime)
 
-    # Merge price data with combined data
-    combinedData = innerjoin(combinedData, priceData, on=:HourUTC_datetime)
+        # --- Change demand to 15 minute resolution in the same way ---
+        demand_value_cols = names(demand, Not([:HourUTC_datetime, :Z]))
+        N_demand = nrow(demand)
+        expanded_demand = demand[repeat(1:N_demand, inner=repeats), :]
+        expanded_demand.:HourUTC_datetime .+= Minute.(15 .* repeat(0:3, outer=N_demand))
+        expanded_demand[:, demand_value_cols] .= expanded_demand[:, demand_value_cols] ./ 4
+        demand = expanded_demand
+        sort!(demand, :HourUTC_datetime)
+        
+        # --- Add price data ---
+        priceData = CSV.read("Data/ImbalancePrice.csv", DataFrame, decimal=',')
+        priceData[!, :HourUTC_datetime] = DateTime.(priceData[:, :TimeUTC], DateFormat("yyyy-mm-dd HH:MM:SS"))
+        priceData = select(priceData, [:HourUTC_datetime, :ImbalancePriceEUR, :SpotPriceEUR, :DominatingDirection])
+        priceData[!, :ImbalanceSpreadEUR] = priceData[!, :ImbalancePriceEUR] .- priceData[!, :SpotPriceEUR]
+        # Fill missing ImbalanceSpreadEUR values with 0.0
+        priceData[!, :ImbalanceSpreadEUR] = coalesce.(priceData[!, :ImbalanceSpreadEUR], 0.0)
+        
+        # Fill missing DominatingDirection values based on ImbalanceSpreadEUR
+        #priceData[!, :DominatingDirection] = coalesce.(priceData[!, :DominatingDirection], 
+        #                                              sign.(priceData[!, :ImbalanceSpreadEUR]))
+        # Generate new DominatingDirection column based on ImbalanceSpreadEUR
+        # This is done because of errors in the dominatingDirection data
+        # If there are missing price values, dominatingDirection is set to 0
+        priceData[!, :DominatingDirection] = ifelse.(coalesce.(priceData[!, :ImbalanceSpreadEUR], 0.0) .> 0, 1,
+                                                            ifelse.(coalesce.(priceData[!, :ImbalanceSpreadEUR], 0.0) .< 0, -1, 0))
+        
+        priceData = select(priceData, [:HourUTC_datetime, :ImbalanceSpreadEUR, :DominatingDirection, :SpotPriceEUR])
+
+        # Merge price data with combined data
+        combinedData = innerjoin(combinedData, priceData, on=:HourUTC_datetime)
+    else
+        imbalancePriceData = CSV.read("Data/RegulatingBalancePowerdata.csv", DataFrame, decimal=',')
+        imbalancePriceData[!, :HourUTC_datetime] = DateTime.(imbalancePriceData[:, :HourUTC], DateFormat("yyyy-mm-dd HH:MM:SS"))
+        imbalancePriceData = select(imbalancePriceData, [:HourUTC_datetime, :ImbalancePriceEUR])
+        
+        spotPriceData = CSV.read("Data/Elspotprices.csv", DataFrame, decimal=',')
+        spotPriceData[!, :HourUTC_datetime] = DateTime.(spotPriceData[:, :HourUTC], DateFormat("yyyy-MM-dd HH:MM:SS"))
+        spotPriceData = select(spotPriceData, [:HourUTC_datetime, :SpotPriceEUR])
+        
+        # Join the price data on datetime first, then calculate spread
+        priceData = innerjoin(spotPriceData, imbalancePriceData, on=:HourUTC_datetime)
+        priceData[!, :ImbalanceSpreadEUR] = priceData[!, :ImbalancePriceEUR] .- priceData[!, :SpotPriceEUR]
+
+        #Generate DominatingDirection column based on ImbalanceSpreadEUR
+        priceData[!, :DominatingDirection] = ifelse.(coalesce.(priceData[!, :ImbalanceSpreadEUR], 0.0) .> 0, 1,
+                                                            ifelse.(coalesce.(priceData[!, :ImbalanceSpreadEUR], 0.0) .< 0, -1, 0))
+        
+        # Select final columns in the same order as the fifteenMinRes branch
+        priceData = select(priceData, [:HourUTC_datetime, :ImbalanceSpreadEUR, :DominatingDirection, :SpotPriceEUR])
+        
+        combinedData = innerjoin(combinedData, priceData, on=:HourUTC_datetime)
+    end
+
+    # --- Reverse the order of rows in combinedData ---
+    combinedData = reverse(combinedData)
+
+
 
 
     # --- Collect system data ---

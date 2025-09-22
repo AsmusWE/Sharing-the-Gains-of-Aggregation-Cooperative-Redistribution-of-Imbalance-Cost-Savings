@@ -58,8 +58,9 @@ clients = filter(x -> !(x in ["X", "W", "N"]), clients)
 clients = filter(x -> !(x in ["F", "V", "J","E", "T", "O", "Y"]), clients)
 clients = ["A","G"]
 
-start_hour = DateTime(2025, 4, 04, 00, 0, 0)
-sim_days = Int(floor((lastHour - start_hour) / Dates.Day(1)))-100 # Calculate number of days from start_hour to lastHour
+start_hour = DateTime(2024, 04, 01, 00, 0, 0)
+#sim_days = Int(floor((lastHour - start_hour) / Dates.Day(1))) # Calculate number of days from start_hour to lastHour
+sim_days = 4
 println("Simulation period: ", start_hour, " to ", start_hour + Dates.Day(sim_days))
 println("Number of simulation days: ", sim_days)
 num_scenarios_demand = 12 # Number of scenarios for demand
