@@ -32,7 +32,7 @@ clients = filter(x -> !(x in ["F", "V", "J","E", "T", "O", "Y"]), clients)  # Fu
 clients = ["A","G"]
 
 start_hour = DateTime(2025, 4, 04, 00, 0, 0)
-sim_days = 3
+sim_days = 4
 println("Simulation period: ", start_hour, " to ", start_hour + Dates.Day(sim_days))
 println("Number of simulation days: ", sim_days)
 println("Number of clients: ", length(clients))
@@ -77,7 +77,9 @@ results = Dict(
     "total_costs" => Dict(),
     "regular_costs" => Dict(),
     "cvar_costs" => Dict(),
-    "coalition_names" => []
+    "coalition_names" => [],
+    "expected_costs" => Float64[],
+    "expected_cvars" => Float64[]
 )
 
 # Create coalition names for results
@@ -115,6 +117,15 @@ for (beta_idx, beta) in enumerate(beta_values)
         push!(results["regular_costs"][coalition_name], regular_cost)
         push!(results["cvar_costs"][coalition_name], cvar_cost)
     end
+
+    # Also calculate expected cost and CVaR
+    println("Calculating expected cost and CVaR for beta = $beta")
+    bids, expected_cost, expected_cvar = optimize_imbalance(clients, systemData, stochasticData; alpha=alphaCVaR, beta = beta, extendedOutput=true)
+    
+    # Store expected cost and CVaR
+    push!(results["expected_costs"], expected_cost)
+    push!(results["expected_cvars"], expected_cvar)
+
 end
 
 # =========================
@@ -161,8 +172,22 @@ for (i, beta) in enumerate(results["beta_values"])
               text("β=$(round(beta, digits=1))", 8, :center, :bottom))
 end
 
+# Plot 5: Expected Cost vs Expected CVaR with Beta values as scatter points
+p5 = scatter(title="Expected Total Cost vs Expected 5% Tail Cost", xlabel="Expected Total Cost", ylabel="Expected 5% Tail Cost")
+scatter!(p5, results["expected_costs"], results["expected_cvars"],
+         marker=:circle, color=:orange, markersize=8, alpha=0.7,
+         markerstrokecolor=:black, markerstrokewidth=1)
+
+# Add text annotations for beta values
+for (i, beta) in enumerate(results["beta_values"])
+    annotate!(p5, results["expected_costs"][i], 
+              results["expected_cvars"][i], 
+              text("β=$(round(beta, digits=1))", 8, :center, :bottom))
+end
+
 # Display all plots
 #display(p1)
 #display(p2)
 #display(p3)
 display(p4)
+display(p5)

@@ -39,7 +39,7 @@ function get_pv_forecast(stochasticData, systemData, T)
     end
 end
 
-function optimize_imbalance(coalition, systemData, stochasticData; alpha=0.05, beta = 0.5)
+function optimize_imbalance(coalition, systemData, stochasticData; alpha=0.05, beta = 0.5, extendedOutput=false)
     clientPVOwnership = getindex.(Ref(systemData["clientPVOwnership"]), coalition)
     TimeHorizon = length(systemData["price_prod_demand_df"][!, "HourUTC_datetime"])
     T = min(TimeHorizon, size(systemData["price_prod_demand_df"])[1])
@@ -121,7 +121,17 @@ function optimize_imbalance(coalition, systemData, stochasticData; alpha=0.05, b
     solution = optimize!(model)
     if termination_status(model) == MOI.OPTIMAL
         #println(value.(bid))
-        return value.(bid)
+        if extendedOutput
+            cost = probSpread * probDemand * (sum( (value(bid[t]) + value(neg_imbal[t, sSpread, s]) - value(pos_imbal[t, sSpread, s])) * spotScenarios[sSpread] # DA bid payment and spot price part of imbalance (this cost is covered by the client)
+                                + dominantDirection[sSpread,t]*(value(pos_imbal[t, sSpread, s])*spreadScenarios[sSpread,t]) # Cost of positive imbalance
+                                + (1-dominantDirection[sSpread,t])*(-value(neg_imbal[t, sSpread, s]))*spreadScenarios[sSpread,t] # Cost of negative imbalance
+                                for t in 1:T for s in 1:SDemand for sSpread in 1:SSpread))
+            cvar = value(xeta) + (1/(1-alpha)) * probSpread * probDemand * sum(value(eta[sSpread, s]) for s in 1:SDemand for sSpread in 1:SSpread)
+            return value.(bid), cost, cvar
+
+        else
+            return value.(bid)
+        end
     else
         println("No optimal solution found")
     end
@@ -314,7 +324,7 @@ function calculate_total_costs_specific(systemData, coalitions, stochasticData, 
         total_cost = cost_weight * regular_cost + cvar_weight * cvar_value
         total_costs_dict[coalition] = total_cost
     end
-    
+    println("Cost calculation completed.")
     return total_costs_dict, costs_dict, cvar_dict, imbalancesDict
 end
 
@@ -360,7 +370,7 @@ function calculate_costs_specific(systemData, coalitions, stochasticData, simDay
         imbalance_costs = max.(0, imbalance_costs) # Only consider positive costs for two price scheme
         total_cost = sum(imbalance_costs)
         # Calculate imbalance costs using the two-price system
-        total_cost = 0.0
+        #total_cost = 0.0
         #for j in eachindex(dominantDirection)
         #    imbalance_with_dir = actual_imbalances[j] * dominantDirection[j] #This will be a positive number if the imbalance is in the same direction as the dominant direction
         #    coalitionPvProd = systemData["price_prod_demand_df"][j,"SolarMWh"] * sum(systemData["clientPVOwnership"][client] for client in coalition)
