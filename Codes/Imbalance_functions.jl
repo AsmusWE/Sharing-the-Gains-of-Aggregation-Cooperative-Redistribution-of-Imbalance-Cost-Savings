@@ -136,6 +136,9 @@ function optimize_imbalance(coalition, systemData, stochasticData; alpha=0.05, b
         end
     else
         println("No optimal solution found")
+        println("Bidding mean net consumption for coalition $(coalition) instead")
+        consumption = [sum(demand[t,s] - prod[t] for s in 1:SDemand) / SDemand for t in 1:T]
+        return consumption
     end
 end
 

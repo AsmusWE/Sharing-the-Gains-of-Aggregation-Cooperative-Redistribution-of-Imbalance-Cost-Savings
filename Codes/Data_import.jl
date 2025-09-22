@@ -126,22 +126,12 @@ function load_data()
         
         # Select final columns in the same order as the fifteenMinRes branch
         priceData = select(priceData, [:HourUTC_datetime, :ImbalanceSpreadEUR, :DominatingDirection, :SpotPriceEUR])
-        firstHourPrice = minimum(priceData[:, :HourUTC_datetime])
-        firstHourData = minimum(combinedData[:, :HourUTC_datetime])
-        println("First hour in combinedData: ", firstHourData)
-        println("First hour in priceData: ", firstHourPrice)
         combinedData = innerjoin(combinedData, priceData, on=:HourUTC_datetime)
-        firstHourData = minimum(combinedData[:, :HourUTC_datetime])
-        println("First hour in combinedData after join: ", firstHourData)
     end
 
     # --- Reverse the order of rows in combinedData ---
     combinedData = reverse(combinedData)
 
-
-
-    firstHour = minimum(combinedData[:, :HourUTC_datetime])
-    println("Data starts at: ", firstHour)
     # --- Collect system data ---
     systemData = Dict(
         #"demand" => demand,

@@ -63,10 +63,10 @@ start_hour = DateTime(2024, 04, 01, 00, 0, 0)
 sim_days = 1
 println("Simulation period: ", start_hour, " to ", start_hour + Dates.Day(sim_days))
 println("Number of simulation days: ", sim_days)
-num_scenarios_demand = 12 # Number of scenarios for demand
-num_scenarios_price = 100 # Number of scenarios for imbalance spread
+num_scenarios_demand = 1 # Number of scenarios for demand
+num_scenarios_price = 2 # Number of scenarios for imbalance spread
 spread_scens_length = 1 # Sets the length of the imbalance spread scenarios, will repeat after this if necessary
-alphaCVaR = 0.05 # CVaR confidence level
+alphaCVaR = 0.025 # CVaR confidence level
 beta = 0 # Weighting factor between cost and CVaR in total cost calculation
 dailyPlot = false # Whether to run the daily calculations
 

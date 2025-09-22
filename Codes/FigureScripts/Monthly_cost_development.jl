@@ -49,17 +49,17 @@ systemData, clients, demandData = load_data()# Filter out smallest clients for f
 clients = filter(x -> !(x in ["X", "W", "N"]), clients)
 # Filter down to 12 for nucleolus
 clients = filter(x -> !(x in ["F", "V", "J","E", "T", "O", "Y"]), clients)
-clients = ["A","G"]
+clients = ["A","G","I","S","Q"]
 
 start_hour = DateTime(2023, 11, 01, 00, 0, 0)
 simulation_months = 12
 month_length = 30 # Days in a month
 
-num_scenarios_demand = 5 # Number of scenarios for demand
+num_scenarios_demand = 3 # Number of scenarios for demand
 num_scenarios_price = 20 # Number of scenarios for imbalance spread
 spread_scens_length = 1 # Sets the length of the imbalance spread scenarios, will repeat after this if necessary
-alphaCVaR = 0.05 # CVaR confidence level
-beta = 0 # Weighting factor between cost and CVaR in total cost calculation
+alphaCVaR = 0.025 # CVaR confidence level
+beta = 0.5 # Weighting factor between cost and CVaR in total cost calculation
 dailyPlot = false # Whether to run the daily calculations
 
 stochasticData = Dict(
@@ -111,13 +111,50 @@ for month in 1:simulation_months
     for client in clients
         clientDemand[client] = sum(monthData["price_prod_demand_df"][!, client])
     end
-    push!(monthlyClientDemand, sum(Matrix(demandData[!, clients]), dims=1) |> vec)
+    push!(monthlyClientDemand, clientDemand)
 
 end
 
 
-# Plot of income with flat MWh fee
+# Plot of income with flat MWh fee per client
 flat_rate_fee = 10 # EUR/MWh
+monthlyClientFlatRateIncome = []
+for month in 1:simulation_months
+    client_income = Dict()
+    for client in clients
+        client_income[client] = monthlyClientDemand[month][client] * flat_rate_fee
+    end
+    push!(monthlyClientFlatRateIncome, client_income)
+end
+
+# =========================
+# CVaR-based Payment Calculation
+# =========================
+# Create payments based on previous month's CVaR (use flat rate for first month)
+monthlyClientCVaRPayments = []
+for month in 1:simulation_months
+    client_cvar_payments = Dict()
+    for client in clients
+        client_cvar_payments[client] = 2*monthlyClientCVaRCosts[month][[client]] # Default to current month's CVaR cost
+    end
+    #if month == 1
+    #    # Use flat rate for the first month
+    #    for client in clients
+    #        client_cvar_payments[client] = monthlyClientDemand[month][client] * flat_rate_fee
+    #    end
+    #else
+    #    # Use previous month's CVaR costs as payment rate
+    #    prev_month_cvar = monthlyClientCVaRCosts[month-1]
+    #    prev_month_demand = monthlyClientDemand[month-1]
+    #    
+    #    for client in clients
+    #            cvar_rate = prev_month_cvar[[client]] / prev_month_demand[client]  # EUR/MWh
+    #            client_cvar_payments[client] = monthlyClientDemand[month][client] * cvar_rate
+    #    end
+    #end
+    
+    push!(monthlyClientCVaRPayments, client_cvar_payments)
+end
 
 # =========================
 # 3. Plot Monthly Grand Coalition and Gately Allocation Costs
@@ -185,6 +222,232 @@ plot!(p, 1:simulation_months, gately_total_costs,
 
 display(p)
 
+# =========================
+# 4. Plot Client Costs: Gately vs Flat Rate vs Difference
+# =========================
+println("Creating client cost comparison plot...")
+
+# Create subplots for each client plus one for grand coalition
+num_clients = length(clients)
+p_clients = plot(layout=(num_clients + 1, 1), size=(1000, 300*(num_clients + 1)))
+
+for (i, client) in enumerate(clients)
+    # Extract monthly Gately costs for this client
+    monthly_gately_costs = []
+    for month in 1:simulation_months
+        if haskey(monthlyAllocationCosts[month], "gately") && haskey(monthlyAllocationCosts[month]["gately"], client)
+            push!(monthly_gately_costs, monthlyAllocationCosts[month]["gately"][client])
+        else
+            push!(monthly_gately_costs, 0.0)
+        end
+    end
+    
+    # Extract monthly flat rate income for this client
+    monthly_flat_rate_income = []
+    for month in 1:simulation_months
+        push!(monthly_flat_rate_income, monthlyClientFlatRateIncome[month][client])
+    end
+    
+    # Convert Gately costs to negative (expenses), keep flat rate positive (income)
+    monthly_gately_costs_neg = -monthly_gately_costs
+    monthly_flat_rate_income_pos = monthly_flat_rate_income
+    
+    # Calculate the sum (net position: income - costs)
+    monthly_net_position = monthly_flat_rate_income_pos .+ monthly_gately_costs_neg
+    
+    # Plot for this client
+    plot!(p_clients[i], 1:simulation_months, monthly_gately_costs_neg, 
+          label="Cost of client (Gately Point)", 
+          linewidth=3,
+          marker=:circle,
+          markersize=6,
+          color=:blue,
+          title="Client $client: Monthly Financial Position",
+          xlabel="Month",
+          ylabel="Amount (EUR)",
+          legend=:outerbottom,
+          legend_columns=3,
+          grid=true)
+    
+    plot!(p_clients[i], 1:simulation_months, monthly_flat_rate_income_pos, 
+          label="Flat Rate Payment (10€/MWh)", 
+          linewidth=3,
+          marker=:square,
+          markersize=6,
+          color=:green)
+    
+    plot!(p_clients[i], 1:simulation_months, monthly_net_position, 
+          label="Net Position (Income + Cost)", 
+          linewidth=3,
+          marker=:diamond,
+          markersize=6,
+          color=:red,
+          linestyle=:dash)
+    
+    # Add horizontal line at zero for reference
+    hline!(p_clients[i], [0], color=:black, linestyle=:dot, alpha=0.5, label="")
+end
+
+# Add grand coalition subplot
+if num_clients > 0
+    # Calculate total costs across all clients for each month
+    monthly_total_gately = [sum(haskey(monthlyAllocationCosts[month], "gately") && haskey(monthlyAllocationCosts[month]["gately"], client) ? monthlyAllocationCosts[month]["gately"][client] : 0.0 for client in clients) for month in 1:simulation_months]
+    monthly_total_flat_rate = [sum(monthlyClientFlatRateIncome[month][client] for client in clients) for month in 1:simulation_months]
+    
+    # Calculate values for grand coalition subplot
+    monthly_total_gately_neg = -monthly_total_gately
+    monthly_total_flat_rate_pos = monthly_total_flat_rate
+    monthly_total_net_position = monthly_total_flat_rate_pos .+ monthly_total_gately_neg
+    
+    # Plot grand coalition data in the last subplot
+    subplot_index = num_clients + 1
+    plot!(p_clients[subplot_index], 1:simulation_months, monthly_total_gately_neg, 
+          label="Total Gately Allocation (Cost)", 
+          linewidth=3,
+          marker=:circle,
+          markersize=6,
+          color=:blue,
+          title="Grand Coalition: Total Monthly Financial Position",
+          xlabel="Month",
+          ylabel="Amount (EUR)",
+          legend=:outerbottom,
+          legend_columns=3,
+          grid=true)
+    
+    plot!(p_clients[subplot_index], 1:simulation_months, monthly_total_flat_rate_pos, 
+          label="Total Flat Rate Payments (Income)", 
+          linewidth=3,
+          marker=:square,
+          markersize=6,
+          color=:green)
+    
+    plot!(p_clients[subplot_index], 1:simulation_months, monthly_total_net_position, 
+          label="Total Net Position (Income + Cost)", 
+          linewidth=3,
+          marker=:diamond,
+          markersize=6,
+          color=:red,
+          linestyle=:dash)
+    
+    # Add horizontal line at zero for reference
+    hline!(p_clients[subplot_index], [0], color=:black, linestyle=:dot, alpha=0.5, label="")
+end
+
+display(p_clients)
+
+# =========================
+# 5. Plot Client Costs: Gately vs CVaR-based Payments
+# =========================
+println("Creating client cost comparison plot with CVaR-based payments...")
+
+# Create subplots for each client plus one for grand coalition
+num_clients_cvar = length(clients)
+p_clients_cvar = plot(layout=(num_clients_cvar + 1, 1), size=(1000, 300*(num_clients_cvar + 1)))
+
+for (i, client) in enumerate(clients)
+    # Extract monthly Gately costs for this client
+    monthly_gately_costs = []
+    for month in 1:simulation_months
+        if haskey(monthlyAllocationCosts[month], "gately") && haskey(monthlyAllocationCosts[month]["gately"], client)
+            push!(monthly_gately_costs, monthlyAllocationCosts[month]["gately"][client])
+        else
+            push!(monthly_gately_costs, 0.0)
+        end
+    end
+    
+    # Extract monthly CVaR-based payments for this client
+    monthly_cvar_payments = []
+    for month in 1:simulation_months
+        push!(monthly_cvar_payments, monthlyClientCVaRPayments[month][client])
+    end
+    
+    # Convert Gately costs to negative (expenses), keep CVaR payments positive (income)
+    monthly_gately_costs_neg = -monthly_gately_costs
+    monthly_cvar_payments_pos = monthly_cvar_payments
+    
+    # Calculate the sum (net position: income - costs)
+    monthly_net_position_cvar = monthly_cvar_payments_pos .+ monthly_gately_costs_neg
+    
+    # Plot for this client
+    plot!(p_clients_cvar[i], 1:simulation_months, monthly_gately_costs_neg, 
+          label="Cost of client (Gately Point)", 
+          linewidth=3,
+          marker=:circle,
+          markersize=6,
+          color=:blue,
+          title="Client $client: Monthly Financial Position (CVaR-based Payments)",
+          xlabel="Month",
+          ylabel="Amount (EUR)",
+          legend=:outerbottom,
+          legend_columns=3,
+          grid=true)
+    
+    plot!(p_clients_cvar[i], 1:simulation_months, monthly_cvar_payments_pos, 
+          label="CVaR-based Payment (Prev Month)", 
+          linewidth=3,
+          marker=:square,
+          markersize=6,
+          color=:orange)
+    
+    plot!(p_clients_cvar[i], 1:simulation_months, monthly_net_position_cvar, 
+          label="Net Position (Income + Cost)", 
+          linewidth=3,
+          marker=:diamond,
+          markersize=6,
+          color=:red,
+          linestyle=:dash)
+    
+    # Add horizontal line at zero for reference
+    hline!(p_clients_cvar[i], [0], color=:black, linestyle=:dot, alpha=0.5, label="")
+end
+
+# Add grand coalition subplot for CVaR-based payments
+if num_clients_cvar > 0
+    # Calculate total costs across all clients for each month
+    monthly_total_gately_cvar = [sum(haskey(monthlyAllocationCosts[month], "gately") && haskey(monthlyAllocationCosts[month]["gately"], client) ? monthlyAllocationCosts[month]["gately"][client] : 0.0 for client in clients) for month in 1:simulation_months]
+    monthly_total_cvar_payments = [sum(monthlyClientCVaRPayments[month][client] for client in clients) for month in 1:simulation_months]
+    
+    # Calculate values for grand coalition subplot
+    monthly_total_gately_neg_cvar = -monthly_total_gately_cvar
+    monthly_total_cvar_payments_pos = monthly_total_cvar_payments
+    monthly_total_net_position_cvar = monthly_total_cvar_payments_pos .+ monthly_total_gately_neg_cvar
+    
+    # Plot grand coalition data in the last subplot
+    subplot_index_cvar = num_clients_cvar + 1
+    plot!(p_clients_cvar[subplot_index_cvar], 1:simulation_months, monthly_total_gately_neg_cvar, 
+          label="Total Gately Allocation (Cost)", 
+          linewidth=3,
+          marker=:circle,
+          markersize=6,
+          color=:blue,
+          title="Grand Coalition: Total Monthly Financial Position (CVaR-based)",
+          xlabel="Month",
+          ylabel="Amount (EUR)",
+          legend=:outerbottom,
+          legend_columns=3,
+          grid=true)
+    
+    plot!(p_clients_cvar[subplot_index_cvar], 1:simulation_months, monthly_total_cvar_payments_pos, 
+          label="Total CVaR-based Payments (Income)", 
+          linewidth=3,
+          marker=:square,
+          markersize=6,
+          color=:orange)
+    
+    plot!(p_clients_cvar[subplot_index_cvar], 1:simulation_months, monthly_total_net_position_cvar, 
+          label="Total Net Position (Income + Cost)", 
+          linewidth=3,
+          marker=:diamond,
+          markersize=6,
+          color=:red,
+          linestyle=:dash)
+    
+    # Add horizontal line at zero for reference
+    hline!(p_clients_cvar[subplot_index_cvar], [0], color=:black, linestyle=:dot, alpha=0.5, label="")
+end
+
+display(p_clients_cvar)
+
 # Display summary statistics
 println("\n=== Monthly Cost Comparison Summary ===")
 println("Grand Coalition Costs: $(round.(grand_coalition_costs, digits=2))")
@@ -193,6 +456,47 @@ println("Total Grand Coalition Cost: $(round(sum(grand_coalition_costs), digits=
 println("Total Gately Cost: $(round(sum(gately_total_costs), digits=2)) EUR")
 println("Average Monthly Grand Coalition Cost: $(round(mean(grand_coalition_costs), digits=2)) EUR")
 println("Average Monthly Gately Cost: $(round(mean(gately_total_costs), digits=2)) EUR")
+
+println("\n=== Client Cost vs Flat Rate Analysis ===")
+for client in clients
+    # Extract data for this client
+    monthly_gately_costs = []
+    monthly_flat_rate_income = []
+    for month in 1:simulation_months
+        if haskey(monthlyAllocationCosts[month], "gately") && haskey(monthlyAllocationCosts[month]["gately"], client)
+            push!(monthly_gately_costs, monthlyAllocationCosts[month]["gately"][client])
+        else
+            push!(monthly_gately_costs, 0.0)
+        end
+        push!(monthly_flat_rate_income, monthlyClientFlatRateIncome[month][client])
+    end
+    
+    monthly_difference = monthly_gately_costs .- monthly_flat_rate_income
+    
+    total_gately = sum(monthly_gately_costs)
+    total_flat_rate = sum(monthly_flat_rate_income)
+    total_difference = sum(monthly_difference)
+    
+    avg_gately = mean(monthly_gately_costs)
+    avg_flat_rate = mean(monthly_flat_rate_income)
+    avg_difference = mean(monthly_difference)
+    
+    println("\nClient $client:")
+    println("  Total Gately cost: $(round(total_gately, digits=2)) EUR")
+    println("  Total Flat rate payment: $(round(total_flat_rate, digits=2)) EUR")
+    println("  Total difference: $(round(total_difference, digits=2)) EUR")
+    println("  Average monthly Gately cost: $(round(avg_gately, digits=2)) EUR")
+    println("  Average monthly Flat rate payment: $(round(avg_flat_rate, digits=2)) EUR")
+    println("  Average monthly difference: $(round(avg_difference, digits=2)) EUR")
+    
+    if total_difference > 0
+        println("  → Client pays MORE with Gately allocation")
+    elseif total_difference < 0
+        println("  → Client pays LESS with Gately allocation")
+    else
+        println("  → No difference between allocation methods")
+    end
+end
 
 println("\nIndividual Client Gately Costs:")
 for client in clients
