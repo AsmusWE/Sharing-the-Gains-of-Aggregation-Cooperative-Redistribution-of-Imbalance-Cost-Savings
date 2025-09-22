@@ -32,7 +32,7 @@ function load_data()
 
     # --- Combine demand and PV production ---
     combinedData = innerjoin(pvProduction, demand, on=:HourUTC_datetime)
-
+    firstHour = minimum(combinedData[:, :HourUTC_datetime])
     # --- Prepare client list ---
     clients = sort(collect(keys(clientPVOwnership)))
 
@@ -54,7 +54,6 @@ function load_data()
     combinedData = select(combinedData, Cols(:HourUTC_datetime, :SolarMWh, clients_without_missing_data..., :PVForecast))
     demand = select(demand, Cols(:HourUTC_datetime, :Z, clients_without_missing_data...))
 
-    
     fifteenMinRes = false
     if fifteenMinRes
         # --- Change to 15 minute resolution for combinedData ---
@@ -110,7 +109,15 @@ function load_data()
         spotPriceData = select(spotPriceData, [:HourUTC_datetime, :SpotPriceEUR])
         
         # Join the price data on datetime first, then calculate spread
-        priceData = innerjoin(spotPriceData, imbalancePriceData, on=:HourUTC_datetime)
+        # Use leftjoin to keep all imbalance data, fill missing spot prices with 0
+        priceData = leftjoin(imbalancePriceData, spotPriceData, on=:HourUTC_datetime)
+        
+        # Fill missing spot prices with 0
+        priceData[!, :SpotPriceEUR] = coalesce.(priceData[!, :SpotPriceEUR], 0.0)
+        
+        # Calculate spread
+        priceData[!, :ImbalanceSpreadEUR] = priceData[!, :ImbalancePriceEUR] .- priceData[!, :SpotPriceEUR]
+        
         priceData[!, :ImbalanceSpreadEUR] = priceData[!, :ImbalancePriceEUR] .- priceData[!, :SpotPriceEUR]
 
         #Generate DominatingDirection column based on ImbalanceSpreadEUR
@@ -119,8 +126,13 @@ function load_data()
         
         # Select final columns in the same order as the fifteenMinRes branch
         priceData = select(priceData, [:HourUTC_datetime, :ImbalanceSpreadEUR, :DominatingDirection, :SpotPriceEUR])
-        
+        firstHourPrice = minimum(priceData[:, :HourUTC_datetime])
+        firstHourData = minimum(combinedData[:, :HourUTC_datetime])
+        println("First hour in combinedData: ", firstHourData)
+        println("First hour in priceData: ", firstHourPrice)
         combinedData = innerjoin(combinedData, priceData, on=:HourUTC_datetime)
+        firstHourData = minimum(combinedData[:, :HourUTC_datetime])
+        println("First hour in combinedData after join: ", firstHourData)
     end
 
     # --- Reverse the order of rows in combinedData ---
@@ -128,7 +140,8 @@ function load_data()
 
 
 
-
+    firstHour = minimum(combinedData[:, :HourUTC_datetime])
+    println("Data starts at: ", firstHour)
     # --- Collect system data ---
     systemData = Dict(
         #"demand" => demand,

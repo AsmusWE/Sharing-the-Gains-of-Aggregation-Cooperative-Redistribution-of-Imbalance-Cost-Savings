@@ -32,14 +32,14 @@ clients = filter(x -> !(x in ["F", "V", "J","E", "T", "O", "Y"]), clients)  # Fu
 clients = ["A","G"]
 
 start_hour = DateTime(2024, 06, 01, 00, 0, 0)
-sim_days = 5
+sim_days = 10
 println("Simulation period: ", start_hour, " to ", start_hour + Dates.Day(sim_days))
 println("Number of simulation days: ", sim_days)
 println("Number of clients: ", length(clients))
 
 # Simulation parameters
-num_scenarios_demand = 3
-num_scenarios_price = 10
+num_scenarios_demand = 6
+num_scenarios_price = 50
 spread_scens_length = 1
 alphaCVaR = 0.05  # CVaR confidence level
 beta_values = 0.0:0.1:1.0  # Beta values from 0 to 1 in steps of 0.1
@@ -163,26 +163,26 @@ plot!(p3, results["beta_values"], results["total_costs"][full_coalition_name],
 p4 = scatter(title="Realized Total Cost vs Realized 5% Tail Cost", xlabel="Total Cost", ylabel="5% tail Cost")
 scatter!(p4, results["regular_costs"][full_coalition_name], results["cvar_costs"][full_coalition_name],
          marker=:circle, color=:purple, markersize=8, alpha=0.7,
-         markerstrokecolor=:black, markerstrokewidth=1)
+         markerstrokecolor=:black, markerstrokewidth=1, legend = :false)
 
 # Add text annotations for beta values
 for (i, beta) in enumerate(results["beta_values"])
     annotate!(p4, results["regular_costs"][full_coalition_name][i], 
               results["cvar_costs"][full_coalition_name][i], 
-              text("β=$(round(beta, digits=1))", 8, :center, :bottom))
+              text("β=$(round(beta, digits=1))", 8, :center, :bottom), legend = :false)
 end
 
 # Plot 5: Expected Cost vs Expected CVaR with Beta values as scatter points
 p5 = scatter(title="Expected Total Cost vs Expected 5% Tail Cost", xlabel="Expected Total Cost", ylabel="Expected 5% Tail Cost")
 scatter!(p5, results["expected_costs"], results["expected_cvars"],
          marker=:circle, color=:orange, markersize=8, alpha=0.7,
-         markerstrokecolor=:black, markerstrokewidth=1)
+         markerstrokecolor=:black, markerstrokewidth=1, legend = :false)
 
 # Add text annotations for beta values
 for (i, beta) in enumerate(results["beta_values"])
     annotate!(p5, results["expected_costs"][i], 
               results["expected_cvars"][i], 
-              text("β=$(round(beta, digits=1))", 8, :center, :bottom))
+              text("β=$(round(beta, digits=1))", 8, :center, :bottom), legend = :false)
 end
 
 # Display all plots
