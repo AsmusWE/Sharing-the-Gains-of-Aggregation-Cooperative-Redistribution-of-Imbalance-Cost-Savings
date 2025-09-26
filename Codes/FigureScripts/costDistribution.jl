@@ -25,9 +25,9 @@ systemData, clients, demandData = load_data()
 firstHour = minimum(systemData["price_prod_demand_df"][!, :HourUTC_datetime])
 lastHour = maximum(systemData["price_prod_demand_df"][!, :HourUTC_datetime])
 # Filter out smallest clients for full plot all coalitions, down from 22 to 19
-clients = filter(x -> !(x in ["X", "W", "N"]), clients)
+#clients = filter(x -> !(x in ["X", "W", "N"]), clients)
 # Filter down to 12 for nucleolus
-clients = filter(x -> !(x in ["F", "V", "J","E", "T", "O", "Y"]), clients)
+#clients = filter(x -> !(x in ["F", "V", "J","E", "T", "O", "Y"]), clients)
 #clients = ["A","G"]
 
 start_hour = DateTime(2024, 06, 01, 00, 0, 0)
@@ -41,9 +41,10 @@ num_scenarios_demand = 5 # Number of scenarios for demand
 num_scenarios_price = 50 # Number of scenarios for imbalance spread
 spread_scens_length = 1 # Sets the length of the imbalance spread scenarios, will repeat after this if necessary
 alphaCVaR = 0.05 # CVaR confidence level
-beta = 0.5 # Weighting factor between cost and CVaR in total cost calculation
+beta = 1 # Weighting factor between cost and CVaR in total cost calculation
 dailyPlot = false # Whether to run the daily calculations
-
+dummy = true # Whether to use dummy bids (true) or optimal bids (false)
+onePrice = false # Whether to use one-price (true) or two-price (false)
 
 
 
@@ -55,11 +56,6 @@ stochasticData = Dict(
     # Set standard deviations in percent for noise
     "demand_noise_std" => 0.28,
 )
-
-# Generate scenarios for the entire simulation period (will be sliced monthly)
-if stochasticData["demand_forecast"] == "scenarios"
-    stochasticData["demand_scenarios"] = generate_scenarios_demand_rolling(clients, demandData, start_hour, total_sim_days; num_scenarios=num_scenarios_demand)
-end
 
 stochasticData["imbalance_spread"], stochasticData["spot_price"] = generate_scenarios_imbalance_spread(systemData, start_hour, spread_scens_length; num_scenarios=num_scenarios_price)
 stochasticData["dominantDirection01"] = generate_dominant_direction(stochasticData["imbalance_spread"])
@@ -83,10 +79,10 @@ for month in 1:simulation_months
     # Set data for current month
     monthData = set_period!(deepcopy(systemData), start_hour + Dates.Day((month-1)*month_length), month_length)
     sim_days = month_length
-    
+    stochasticData["demand_scenarios"] = generate_scenarios_demand_rolling(clients, demandData, start_hour + Dates.Day((month-1)*month_length), month_length; num_scenarios=num_scenarios_demand)
     # Calculate costs for this month
     totalCostsDict, costsDict, cvarDict, imbalancesDict = @time calculate_total_costs_specific(
-        monthData, coalitions, stochasticData, sim_days; alpha=alphaCVaR, beta = beta
+        monthData, coalitions, stochasticData, sim_days; alpha=alphaCVaR, beta = beta, dummy = dummy, onePrice = onePrice
     )
     
     # Extract cost distribution data for this month
@@ -94,7 +90,10 @@ for month in 1:simulation_months
     imbalance_spread_month = monthData["price_prod_demand_df"][1:T_month, "ImbalanceSpreadEUR"]
     grand_imbalances_month = imbalancesDict[clients]
     grand_costs_timeseries_month = grand_imbalances_month .* imbalance_spread_month
-    grand_costs_timeseries_month = max.(0, grand_costs_timeseries_month) # Only consider positive costs for two price scheme
+    if !onePrice
+        # For two-price scheme, only consider positive costs (costs cannot be negative)
+        grand_costs_timeseries_month = max.(0, grand_costs_timeseries_month)
+    end
     
     # Append to aggregated arrays
     append!(all_grand_costs_timeseries, grand_costs_timeseries_month)
@@ -127,21 +126,32 @@ println("  Median cost: $(round(median_cost, digits=2)) EUR")
 println("  Min cost: $(round(min_cost, digits=2)) EUR")
 println("  Max cost: $(round(max_cost, digits=2)) EUR")
 println("  VaR ($(round(var_level*100, digits=1))%): $(round(var_value, digits=2)) EUR")
-cost_below_var = sum(filter(x -> x <= var_value, all_grand_costs_timeseries))
+
+# Calculate percentage of observations above VaR (this should be ~5% by definition for alpha=0.05)
+observations_above_var = sum(all_grand_costs_timeseries .> var_value)
+total_observations = length(all_grand_costs_timeseries)
+percent_observations_above_var = (observations_above_var / total_observations) * 100
+
+# Calculate percentage of total cost above VaR (tail risk concentration)
+cost_above_var = sum(filter(x -> x > var_value, all_grand_costs_timeseries))
 total_cost = sum(all_grand_costs_timeseries)
-percent_below_var = (cost_below_var / total_cost) * 100
-println("  Percentage of total cost below VaR: $(round(percent_below_var, digits=2))%")
+percent_cost_above_var = (cost_above_var / total_cost) * 100
+
+println("  Percentage of observations above VaR: $(round(percent_observations_above_var, digits=2))%")
+println("  Percentage of total cost above VaR: $(round(percent_cost_above_var, digits=2))%")
 
 # Calculate histogram data once for reuse
 hist_data = histogram(all_grand_costs_timeseries, bins=100, normed=false)
 
-# Plot histogram of aggregated cost distribution
+# Plot histogram of aggregated cost distribution with extended margins for external legend and annotation
 p = histogram(all_grand_costs_timeseries, bins=100, 
-    title="Grand Coalition Cost Distribution ($(simulation_months) months)",
+    title="Grand Coalition Cost Distribution",
     xlabel="Cost per hour interval (EUR)", 
     ylabel="Frequency", 
-    legend=:topright, 
-    yscale=:log10)
+    legend=:outerbottom,  # Position legend below the plot area on the right side
+    yscale=:log10,
+    bottom_margin=15Plots.mm,  # Add bottom margin for legend
+    size=(800, 600))  # Specify plot size to accommodate external elements
 
 # Add VaR line
 vline!([var_value], color=:red, linewidth=2, linestyle=:dash, 
@@ -151,13 +161,25 @@ vline!([var_value], color=:red, linewidth=2, linestyle=:dash,
 vline!([mean_cost], color=:blue, linewidth=2, linestyle=:dot, 
        label="Mean = $(round(mean_cost, digits=2)) EUR")
 
-# Add text box with statistics (position it based on the data range)
-max_frequency = length(all_grand_costs_timeseries) / 100  # Rough estimate for annotation positioning
-annotate!(max_cost * 0.6, max_frequency * 0.3, 
-         text("Total hours: $(length(all_grand_costs_timeseries))\nMonths: $(simulation_months)\nMean: $(round(mean_cost, digits=2)) EUR\nMedian: $(round(median_cost, digits=2)) EUR\nPercentage below VaR: $(round(percent_below_var, digits=2))%", 
-              :left, 8))
+# Create a separate text annotation outside the plot area
+# This will be added as a separate plot element below the main plot
+annotation_text = "Statistics Summary:\n" *
+    "Total hours: $(length(all_grand_costs_timeseries))\n" *
+    "Mean: $(round(mean_cost, digits=2)) EUR\n" *
+    "Median: $(round(median_cost, digits=2)) EUR\n" *
+    "Observations above VaR: $(round(percent_observations_above_var, digits=2))%\n" *
+    "Cost above VaR: $(round(percent_cost_above_var, digits=2))%\n" *
+    "Total Cost: $(round(total_cost, digits=2)) EUR"
 
-display(p)
+# Create a layout with the main plot and annotation below
+p_annotation = plot(framestyle=:none, showaxis=false, grid=false, legend=false, 
+                   xlims=(0,1), ylims=(0,1), size=(800, 120))
+annotate!(p_annotation, 0.02, 2.5, text(annotation_text, :black, 9, :left))
+
+# Combine the main plot and annotation
+p_combined = plot(p, p_annotation, layout=grid(2,1, heights=[0.9, 0.1]))
+
+display(p_combined)
 
 
 

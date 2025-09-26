@@ -60,7 +60,6 @@ num_scenarios_price = 20 # Number of scenarios for imbalance spread
 spread_scens_length = 1 # Sets the length of the imbalance spread scenarios, will repeat after this if necessary
 alphaCVaR = 0.025 # CVaR confidence level
 beta = 0.5 # Weighting factor between cost and CVaR in total cost calculation
-dailyPlot = false # Whether to run the daily calculations
 
 stochasticData = Dict(
     # Accepted forecast types demand: "perfect", "scenarios", "noise"
@@ -168,7 +167,10 @@ p = plot(
     ylabel="Cost (EUR)",
     legend=:outertopright,
     size=(1000, 600),
-    grid=true
+    grid=true,
+    xlims=(0.5, simulation_months + 0.5),
+    xticks=1:simulation_months,
+    margins=5Plots.mm
 )
 
 # Extract monthly grand coalition costs
@@ -267,7 +269,10 @@ for (i, client) in enumerate(clients)
           ylabel="Amount (EUR)",
           legend=:outerbottom,
           legend_columns=3,
-          grid=true)
+          grid=true,
+          xlims=(0.5, simulation_months + 0.5),
+          xticks=1:simulation_months,
+          margins=3Plots.mm)
     
     plot!(p_clients[i], 1:simulation_months, monthly_flat_rate_income_pos, 
           label="Flat Rate Payment (10€/MWh)", 
@@ -312,7 +317,10 @@ if num_clients > 0
           ylabel="Amount (EUR)",
           legend=:outerbottom,
           legend_columns=3,
-          grid=true)
+          grid=true,
+          xlims=(0.5, simulation_months + 0.5),
+          xticks=1:simulation_months,
+          margins=3Plots.mm)
     
     plot!(p_clients[subplot_index], 1:simulation_months, monthly_total_flat_rate_pos, 
           label="Total Flat Rate Payments (Income)", 
@@ -380,10 +388,13 @@ for (i, client) in enumerate(clients)
           ylabel="Amount (EUR)",
           legend=:outerbottom,
           legend_columns=3,
-          grid=true)
+          grid=true,
+          xlims=(0.5, simulation_months + 0.5),
+          xticks=1:simulation_months,
+          margins=3Plots.mm)
     
     plot!(p_clients_cvar[i], 1:simulation_months, monthly_cvar_payments_pos, 
-          label="CVaR-based Payment (Prev Month)", 
+          label="CVaR-based Payment", 
           linewidth=3,
           marker=:square,
           markersize=6,
@@ -425,7 +436,10 @@ if num_clients_cvar > 0
           ylabel="Amount (EUR)",
           legend=:outerbottom,
           legend_columns=3,
-          grid=true)
+          grid=true,
+          xlims=(0.5, simulation_months + 0.5),
+          xticks=1:simulation_months,
+          margins=3Plots.mm)
     
     plot!(p_clients_cvar[subplot_index_cvar], 1:simulation_months, monthly_total_cvar_payments_pos, 
           label="Total CVaR-based Payments (Income)", 
@@ -447,74 +461,3 @@ if num_clients_cvar > 0
 end
 
 display(p_clients_cvar)
-
-# Display summary statistics
-println("\n=== Monthly Cost Comparison Summary ===")
-println("Grand Coalition Costs: $(round.(grand_coalition_costs, digits=2))")
-println("Gately Total Costs: $(round.(gately_total_costs, digits=2))")
-println("Total Grand Coalition Cost: $(round(sum(grand_coalition_costs), digits=2)) EUR")
-println("Total Gately Cost: $(round(sum(gately_total_costs), digits=2)) EUR")
-println("Average Monthly Grand Coalition Cost: $(round(mean(grand_coalition_costs), digits=2)) EUR")
-println("Average Monthly Gately Cost: $(round(mean(gately_total_costs), digits=2)) EUR")
-
-println("\n=== Client Cost vs Flat Rate Analysis ===")
-for client in clients
-    # Extract data for this client
-    monthly_gately_costs = []
-    monthly_flat_rate_income = []
-    for month in 1:simulation_months
-        if haskey(monthlyAllocationCosts[month], "gately") && haskey(monthlyAllocationCosts[month]["gately"], client)
-            push!(monthly_gately_costs, monthlyAllocationCosts[month]["gately"][client])
-        else
-            push!(monthly_gately_costs, 0.0)
-        end
-        push!(monthly_flat_rate_income, monthlyClientFlatRateIncome[month][client])
-    end
-    
-    monthly_difference = monthly_gately_costs .- monthly_flat_rate_income
-    
-    total_gately = sum(monthly_gately_costs)
-    total_flat_rate = sum(monthly_flat_rate_income)
-    total_difference = sum(monthly_difference)
-    
-    avg_gately = mean(monthly_gately_costs)
-    avg_flat_rate = mean(monthly_flat_rate_income)
-    avg_difference = mean(monthly_difference)
-    
-    println("\nClient $client:")
-    println("  Total Gately cost: $(round(total_gately, digits=2)) EUR")
-    println("  Total Flat rate payment: $(round(total_flat_rate, digits=2)) EUR")
-    println("  Total difference: $(round(total_difference, digits=2)) EUR")
-    println("  Average monthly Gately cost: $(round(avg_gately, digits=2)) EUR")
-    println("  Average monthly Flat rate payment: $(round(avg_flat_rate, digits=2)) EUR")
-    println("  Average monthly difference: $(round(avg_difference, digits=2)) EUR")
-    
-    if total_difference > 0
-        println("  → Client pays MORE with Gately allocation")
-    elseif total_difference < 0
-        println("  → Client pays LESS with Gately allocation")
-    else
-        println("  → No difference between allocation methods")
-    end
-end
-
-println("\nIndividual Client Gately Costs:")
-for client in clients
-    monthly_gately_costs = []
-    for month in 1:simulation_months
-        if haskey(monthlyAllocationCosts[month], "gately") && haskey(monthlyAllocationCosts[month]["gately"], client)
-            push!(monthly_gately_costs, monthlyAllocationCosts[month]["gately"][client])
-        else
-            push!(monthly_gately_costs, 0.0)
-        end
-    end
-    
-    total_cost = sum(monthly_gately_costs)
-    avg_cost = mean(monthly_gately_costs)
-    
-    println("Client $client:")
-    println("  Monthly costs: $(round.(monthly_gately_costs, digits=2))")
-    println("  Total cost: $(round(total_cost, digits=2)) EUR")
-    println("  Average monthly cost: $(round(avg_cost, digits=2)) EUR")
-end
-

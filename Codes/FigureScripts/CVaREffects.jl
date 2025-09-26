@@ -27,12 +27,12 @@ firstHour = minimum(systemData["price_prod_demand_df"][!, :HourUTC_datetime])
 lastHour = maximum(systemData["price_prod_demand_df"][!, :HourUTC_datetime])
 
 # Filter clients for computational efficiency
-clients = filter(x -> !(x in ["X", "W", "N"]), clients)  # Remove smallest clients
-clients = filter(x -> !(x in ["F", "V", "J","E", "T", "O", "Y"]), clients)  # Further filter to 12 clients
-clients = ["A","G"]
+#clients = filter(x -> !(x in ["X", "W", "N"]), clients)  # Remove smallest clients
+#clients = filter(x -> !(x in ["F", "V", "J","E", "T", "O", "Y"]), clients)  # Further filter to 12 clients
+#clients = ["A","G"]
 
-start_hour = DateTime(2024, 06, 01, 00, 0, 0)
-sim_days = 40
+start_hour = DateTime(2024, 07, 01, 00, 0, 0)
+sim_days = 30
 println("Simulation period: ", start_hour, " to ", start_hour + Dates.Day(sim_days))
 println("Number of simulation days: ", sim_days)
 println("Number of clients: ", length(clients))
@@ -161,9 +161,26 @@ plot!(p3, results["beta_values"], results["total_costs"][full_coalition_name],
 
 # Plot 4: Regular Cost vs CVaR Cost with Beta values as scatter points
 p4 = scatter(title="Realized Total Cost vs Realized 5% Tail Cost", xlabel="Total Cost", ylabel="5% tail Cost")
+
+# Plot regular points first
 scatter!(p4, results["regular_costs"][full_coalition_name], results["cvar_costs"][full_coalition_name],
          marker=:circle, color=:purple, markersize=8, alpha=0.7,
          markerstrokecolor=:black, markerstrokewidth=1, legend = :false)
+
+# Highlight beta = 0 and beta = 1 points with different colors
+for (i, beta) in enumerate(results["beta_values"])
+    if beta == 0.0
+        # Highlight beta = 0 in red with larger marker
+        scatter!(p4, [results["regular_costs"][full_coalition_name][i]], [results["cvar_costs"][full_coalition_name][i]],
+                marker=:circle, color=:red, markersize=12, alpha=1.0,
+                markerstrokecolor=:darkred, markerstrokewidth=2, legend = :false)
+    elseif beta == 1.0
+        # Highlight beta = 1 in blue with larger marker
+        scatter!(p4, [results["regular_costs"][full_coalition_name][i]], [results["cvar_costs"][full_coalition_name][i]],
+                marker=:circle, color=:blue, markersize=12, alpha=1.0,
+                markerstrokecolor=:darkblue, markerstrokewidth=2, legend = :false)
+    end
+end
 
 # Add text annotations for beta values
 for (i, beta) in enumerate(results["beta_values"])
@@ -174,9 +191,26 @@ end
 
 # Plot 5: Expected Cost vs Expected CVaR with Beta values as scatter points
 p5 = scatter(title="Expected Total Cost vs Expected 5% Tail Cost", xlabel="Expected Total Cost", ylabel="Expected 5% Tail Cost")
+
+# Plot regular points first
 scatter!(p5, results["expected_costs"], results["expected_cvars"],
          marker=:circle, color=:orange, markersize=8, alpha=0.7,
          markerstrokecolor=:black, markerstrokewidth=1, legend = :false)
+
+# Highlight beta = 0 and beta = 1 points with different colors
+for (i, beta) in enumerate(results["beta_values"])
+    if beta == 0.0
+        # Highlight beta = 0 in red with larger marker
+        scatter!(p5, [results["expected_costs"][i]], [results["expected_cvars"][i]],
+                marker=:circle, color=:red, markersize=12, alpha=1.0,
+                markerstrokecolor=:darkred, markerstrokewidth=2, legend = :false)
+    elseif beta == 1.0
+        # Highlight beta = 1 in blue with larger marker
+        scatter!(p5, [results["expected_costs"][i]], [results["expected_cvars"][i]],
+                marker=:circle, color=:blue, markersize=12, alpha=1.0,
+                markerstrokecolor=:darkblue, markerstrokewidth=2, legend = :false)
+    end
+end
 
 # Add text annotations for beta values
 for (i, beta) in enumerate(results["beta_values"])
