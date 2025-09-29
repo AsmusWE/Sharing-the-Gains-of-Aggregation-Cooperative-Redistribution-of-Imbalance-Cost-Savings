@@ -72,8 +72,8 @@ function optimize_imbalance(coalition, systemData, stochasticData; alpha=0.05, b
     @variable(model, imbal[1:T, 1:SDemand]) # Imbalance amount
     if !onePrice
         # Two-price scheme, separate variables for positive and negative imbalances
-        @variable(model, pos_imbal[1:T, 1:SDemand] >= 0) # Positive imbalance, net consumption lower than bid
-        @variable(model, neg_imbal[1:T, 1:SDemand] >= 0) # Negative imbalance, net consumption higher than bid
+        @variable(model, pos_imbal[1:T, 1:SDemand] >= 0) # Positive imbalance, net consumption lower than bid, have excess to sell
+        @variable(model, neg_imbal[1:T, 1:SDemand] >= 0) # Negative imbalance, net consumption higher than bid, need to buy more
     end
     maxDemand = maximum(demand)
     maxProd = maximum(prod)
@@ -87,20 +87,20 @@ function optimize_imbalance(coalition, systemData, stochasticData; alpha=0.05, b
     #end
     
     if onePrice
-        # One-price objective, minimize cost
-        @objective(model, Min, (1-beta)*probSpread * probDemand * sum( 
+        # One-price objective, maximize revenue
+        @objective(model, Max, (1-beta)*probSpread * probDemand * sum( 
                                     #(bid[t] + neg_imbal[t, sSpread, s] - pos_imbal[t, sSpread, s]) * spotScenarios[sSpread, t] # DA bid payment and spot price part of imbalance (this cost is covered by the client)
-                                    + imbal[t, s]*spreadScenarios[sSpread,t] # Cost of imbalance
+                                    + imbal[t, s]*spreadScenarios[sSpread,t] # Cost of imbalance, positive imbalance means selling at imbalance price 
                                     for t in 1:T for s in 1:SDemand for sSpread in 1:SSpread)
-                                + beta*(xeta + (1/(1-alpha)*sum(probSpread * probDemand * eta[sSpread, s] for s in 1:SDemand for sSpread in 1:SSpread))))
+                                + beta*(xeta - (1/(1-alpha)*sum(probSpread * probDemand * eta[sSpread, s] for s in 1:SDemand for sSpread in 1:SSpread))))
     else
-        # Two-price objective, minimize cost
-        @objective(model, Min, (1-beta)*probSpread * probDemand * sum( 
+        # Two-price objective, maximize revenue
+        @objective(model, Max, (1-beta)*probSpread * probDemand * sum( 
                                     #(bid[t] + neg_imbal[t, sSpread, s] - pos_imbal[t, sSpread, s]) * spotScenarios[sSpread, t] # DA bid payment and spot price part of imbalance (this cost is covered by the client)
-                                    + dominantDirection[sSpread,t]*(pos_imbal[t, s]*spreadScenarios[sSpread,t]) # Cost of positive imbalance
-                                    + (1-dominantDirection[sSpread,t])*(-neg_imbal[t, s])*spreadScenarios[sSpread,t] # Cost of negative imbalance
+                                    + (1-dominantDirection[sSpread,t])*(pos_imbal[t, s]*spreadScenarios[sSpread,t]) # Cost of positive imbalance
+                                    - dominantDirection[sSpread,t]*neg_imbal[t, s]*spreadScenarios[sSpread,t] # Cost of negative imbalance
                                     for t in 1:T for s in 1:SDemand for sSpread in 1:SSpread)
-                                + beta*(xeta + (1/(1-alpha)*sum(probSpread * probDemand * eta[sSpread, s] for s in 1:SDemand for sSpread in 1:SSpread))))
+                                + beta*(xeta - (1/(1-alpha)*sum(probSpread * probDemand * eta[sSpread, s] for s in 1:SDemand for sSpread in 1:SSpread))))
     end
 
     #@objective(model, Min, (1-beta)*probSpread * probDemand * sum(
@@ -130,16 +130,16 @@ function optimize_imbalance(coalition, systemData, stochasticData; alpha=0.05, b
                                 + imbal[t, s]*spreadScenarios[sSpread,t] # Cost of imbalance
                                 for t in 1:T) 
                             + xeta
-                            - eta[sSpread, s] >= 0)
+                            - eta[sSpread, s] <= 0)
     else
         @constraint(model, [sSpread = 1:SSpread, s = 1:SDemand],
                                 -sum(
                                     #(bid[t] + neg_imbal[t, sSpread, s] - pos_imbal[t, sSpread, s]) * spotScenarios[sSpread, t] # DA bid payment and spot price part of imbalance (this cost is covered by the client)
-                                    + dominantDirection[sSpread,t]*(pos_imbal[t, s]*spreadScenarios[sSpread,t]) # Cost of positive imbalance
-                                    + (1-dominantDirection[sSpread,t])*(-neg_imbal[t, s])*spreadScenarios[sSpread,t] # Cost of negative imbalance
+                                    + (1-dominantDirection[sSpread,t])*(pos_imbal[t, s]*spreadScenarios[sSpread,t]) # Cost of positive imbalance
+                                    - dominantDirection[sSpread,t]*neg_imbal[t, s]*spreadScenarios[sSpread,t] # Cost of negative imbalance
                                     for t in 1:T) 
                                 + xeta
-                                - eta[sSpread, s] >= 0)
+                                - eta[sSpread, s] <= 0)
     end
     
     solution = optimize!(model)
@@ -149,7 +149,7 @@ function optimize_imbalance(coalition, systemData, stochasticData; alpha=0.05, b
             cost = probSpread * probDemand * (sum( 
                                 #(value(bid[t]) + value(neg_imbal[t, sSpread, s]) - value(pos_imbal[t, sSpread, s])) * spotScenarios[sSpread, t] # DA bid payment and spot price part of imbalance (this cost is covered by the client)
                                 + dominantDirection[sSpread,t]*(value(pos_imbal[t, s])*spreadScenarios[sSpread,t]) # Cost of positive imbalance
-                                + (1-dominantDirection[sSpread,t])*(-value(neg_imbal[t, s]))*spreadScenarios[sSpread,t] # Cost of negative imbalance
+                                - (1-dominantDirection[sSpread,t])*value(neg_imbal[t, s])*spreadScenarios[sSpread,t] # Cost of negative imbalance
                                 for t in 1:T for s in 1:SDemand for sSpread in 1:SSpread))
             cvar = value(xeta) + (1/(1-alpha)) * probSpread * probDemand * sum(value(eta[sSpread, s]) for s in 1:SDemand for sSpread in 1:SSpread)
             return value.(bid), cost, cvar
@@ -318,8 +318,6 @@ function calculate_total_costs_specific(systemData, coalitions, stochasticData, 
     cost_weight >= 0 || error("Cost weight must be non-negative, got $cost_weight")
     cvar_weight >= 0 || error("CVaR weight must be non-negative, got $cvar_weight")
     
-    println("Calculating total costs (regular costs + CVaR) for each coalition...")
-    
     # Get imbalances and bids for all coalitions (unified calculation)
     T = simDays * 24
     imbalance_spread = systemData["price_prod_demand_df"][1:T, "ImbalanceSpreadEUR"]
@@ -339,26 +337,25 @@ function calculate_total_costs_specific(systemData, coalitions, stochasticData, 
     sizehint!(costs_dict, length(coalitions))
     sizehint!(cvar_dict, length(coalitions))
     sizehint!(total_costs_dict, length(coalitions))
-    
-    println("Calculating costs and CVaR in unified loop...")
+
     for coalition in coalitions
         # Get imbalances for this coalition
         actual_imbalances = imbalancesDict[coalition]
         
-        # Calculate imbalance costs (used for both regular costs and CVaR)
+        # Calculate imbalance costs (positive imbalance means selling at imbalance price, if spread is positive then this is good)
         imbalance_costs = actual_imbalances .* imbalance_spread
         if onePrice
             costs_dict[coalition] = sum(imbalance_costs)
         else
             # Calculate regular costs (two-price system - only positive costs)
-            imbalance_costs = max.(0, imbalance_costs)
-            spot_price_costs = bids[coalition] .* spot_price
+            imbalance_costs = min.(0, imbalance_costs)
+            #spot_price_costs = bids[coalition] .* spot_price
             #regular_cost = sum(regular_imbalance_costs + spot_price_costs)
             costs_dict[coalition] = sum(imbalance_costs)
         end
         # Calculate CVaR using all imbalance costs (including negative)
         cvar_costs = copy(imbalance_costs)
-        partialsort!(cvar_costs, 1:var_index, rev=true)
+        partialsort!(cvar_costs, 1:var_index)
         #cvar_value = mean(cvar_costs[1:var_index])
         tail_cost = sum(cvar_costs[1:var_index])
         #cvar_dict[coalition] = cvar_value

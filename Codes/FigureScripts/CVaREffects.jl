@@ -41,9 +41,8 @@ println("Number of clients: ", length(clients))
 num_scenarios_demand = 5
 num_scenarios_price = 50
 spread_scens_length = 1
-alphaCVaR = 0.05  # CVaR confidence level
-beta_values = 0.0:0.1:1.0  # Beta values from 0 to 1 in steps of 0.1
-
+alphaCVaR = 0.95  # CVaR confidence level
+beta_values = vcat([0.001], collect(0.1:0.1:1))  # Add 0.001 as the first value
 # Setup stochastic data
 stochasticData = Dict(
     "pv_forecast" => "scenarios",

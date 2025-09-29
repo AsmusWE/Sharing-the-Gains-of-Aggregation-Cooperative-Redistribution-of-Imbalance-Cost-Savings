@@ -28,13 +28,14 @@ systemData, clients, demandData = load_data()
 
 # Simulation parameters
 start_hour = DateTime(2023, 07, 01, 00, 0, 0)
-sim_days = 365  # Two months for long timeframe (with 1-hour intervals: 1440 rows / 24 intervals per day = 60 days)
+sim_days = 10  # One year for long timeframe (with 1-hour intervals: 8760 rows / 24 intervals per day = 365 days)
 num_scenarios_demand = 5
 num_scenarios_price = 50  # Reduce to require less historical data
 spread_scens_length = 1
 alphaCVaR = 0.025
 onePrice = false  # Use two-price system
 scale_equal = false # Whether to scale all clients to similar size
+# Side-effect of scaling: Pv production not scaled, makes it insignificant for small clients
 
 # PV Forecast Configuration - Switch between "perfect" and "scenarios"
 pv_forecast_type = "scenarios"  # Options: "perfect" (uses actual SolarMWh), "scenarios" (uses PVForecast)

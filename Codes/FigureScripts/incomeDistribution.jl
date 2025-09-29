@@ -1,4 +1,4 @@
-# This script solves the bidding problem and generates a figure showing the cost distribution across 15 minute realization
+# This script solves the bidding problem and generates a figure showing the income distribution across hourly realizations
 
 
 # Imbalance_main.jl
@@ -30,8 +30,8 @@ lastHour = maximum(systemData["price_prod_demand_df"][!, :HourUTC_datetime])
 #clients = filter(x -> !(x in ["F", "V", "J","E", "T", "O", "Y"]), clients)
 #clients = ["A","G"]
 
-start_hour = DateTime(2024, 06, 01, 00, 0, 0)
-simulation_months = 10 # Number of months to simulate
+start_hour = DateTime(2023, 8, 01, 00, 0, 0)
+simulation_months = 12 # Number of months to simulate
 month_length = 30 # Days in a month
 total_sim_days = simulation_months * month_length # Calculate total simulation days
 println("Simulation period: ", start_hour, " to ", start_hour + Dates.Day(total_sim_days))
@@ -44,7 +44,7 @@ alphaCVaR = 0.05 # CVaR confidence level
 beta = 1 # Weighting factor between cost and CVaR in total cost calculation
 dailyPlot = false # Whether to run the daily calculations
 dummy = false # Whether to use dummy bids (true) or optimal bids (false)
-onePrice = false # Whether to use one-price (true) or two-price (false)
+onePrice = true # Whether to use one-price (true) or two-price (false)
 
 
 
@@ -64,13 +64,13 @@ stochasticData["dominantDirection01"] = generate_dominant_direction(stochasticDa
 
 
 # =========================
-# 2. Monthly Imbalance Calculation and Cost Distribution Aggregation
+# 2. Monthly Imbalance Calculation and Income Distribution Aggregation
 # =========================
 coalitions = [clients]
-println("Calculating cost distribution using monthly chunks to save RAM...")
+println("Calculating income distribution using monthly chunks to save RAM...")
 
 # Initialize arrays to store aggregated results
-all_grand_costs_timeseries = Float64[]
+all_grand_income_timeseries = Float64[]
 monthly_imbalance_spreads = Float64[]
 
 for month in 1:simulation_months
@@ -85,68 +85,68 @@ for month in 1:simulation_months
         monthData, coalitions, stochasticData, sim_days; alpha=alphaCVaR, beta = beta, dummy = dummy, onePrice = onePrice
     )
     
-    # Extract cost distribution data for this month
+    # Extract income distribution data for this month
     T_month = sim_days * 24
     imbalance_spread_month = monthData["price_prod_demand_df"][1:T_month, "ImbalanceSpreadEUR"]
     grand_imbalances_month = imbalancesDict[clients]
-    grand_costs_timeseries_month = grand_imbalances_month .* imbalance_spread_month
+    grand_income_timeseries_month = grand_imbalances_month .* imbalance_spread_month
     if !onePrice
-        # For two-price scheme, only consider positive costs (costs cannot be negative)
-        grand_costs_timeseries_month = max.(0, grand_costs_timeseries_month)
+        # For two-price scheme, only consider negative income 
+        grand_income_timeseries_month = min.(0, grand_income_timeseries_month)
     end
     
     # Append to aggregated arrays
-    append!(all_grand_costs_timeseries, grand_costs_timeseries_month)
+    append!(all_grand_income_timeseries, grand_income_timeseries_month)
     append!(monthly_imbalance_spreads, imbalance_spread_month)
     
     # Force garbage collection to free memory
     GC.gc()
 end
 
-println("Completed monthly cost distribution calculations. Total time series length: ", length(all_grand_costs_timeseries))
+println("Completed monthly income distribution calculations. Total time series length: ", length(all_grand_income_timeseries))
 
 # =========================
-# 3. Plot Aggregated Cost Distribution
+# 3. Plot Aggregated Income Distribution
 # =========================
-println("Creating cost distribution plot from aggregated monthly data...")
+println("Creating income distribution plot from aggregated monthly data...")
 
-# Calculate VaR at the same confidence level as CVaR using aggregated data
-var_level = 1 - alphaCVaR  # Convert alpha to confidence level (95% for alpha=0.05)
-var_value = quantile(all_grand_costs_timeseries, var_level)
+# Calculate VaR at the lower tail for income risk assessment
+var_level = alphaCVaR  # Use alpha directly for lower tail (5% for alpha=0.05)
+var_value = quantile(all_grand_income_timeseries, var_level)
 
 # Calculate additional statistics
-mean_cost = mean(all_grand_costs_timeseries)
-median_cost = median(all_grand_costs_timeseries)
-max_cost = maximum(all_grand_costs_timeseries)
-min_cost = minimum(all_grand_costs_timeseries)
+mean_income = mean(all_grand_income_timeseries)
+median_income = median(all_grand_income_timeseries)
+max_income = maximum(all_grand_income_timeseries)
+min_income = minimum(all_grand_income_timeseries)
 
-println("Cost distribution statistics:")
-println("  Mean cost: $(round(mean_cost, digits=2)) EUR")
-println("  Median cost: $(round(median_cost, digits=2)) EUR")
-println("  Min cost: $(round(min_cost, digits=2)) EUR")
-println("  Max cost: $(round(max_cost, digits=2)) EUR")
+println("Income distribution statistics:")
+println("  Mean income: $(round(mean_income, digits=2)) EUR")
+println("  Median income: $(round(median_income, digits=2)) EUR")
+println("  Min income: $(round(min_income, digits=2)) EUR")
+println("  Max income: $(round(max_income, digits=2)) EUR")
 println("  VaR ($(round(var_level*100, digits=1))%): $(round(var_value, digits=2)) EUR")
 
-# Calculate percentage of observations above VaR (this should be ~5% by definition for alpha=0.05)
-observations_above_var = sum(all_grand_costs_timeseries .> var_value)
-total_observations = length(all_grand_costs_timeseries)
-percent_observations_above_var = (observations_above_var / total_observations) * 100
+# Calculate percentage of observations below VaR (this should be ~5% by definition for alpha=0.05)
+observations_below_var = sum(all_grand_income_timeseries .<= var_value)
+total_observations = length(all_grand_income_timeseries)
+percent_observations_below_var = (observations_below_var / total_observations) * 100
 
-# Calculate percentage of total cost above VaR (tail risk concentration)
-cost_above_var = sum(filter(x -> x > var_value, all_grand_costs_timeseries))
-total_cost = sum(all_grand_costs_timeseries)
-percent_cost_above_var = (cost_above_var / total_cost) * 100
+# Calculate percentage of total income below VaR (lower tail income concentration)
+income_below_var = sum(filter(x -> x <= var_value, all_grand_income_timeseries))
+total_income = sum(all_grand_income_timeseries)
+percent_income_below_var = (income_below_var / total_income) * 100
 
-println("  Percentage of observations above VaR: $(round(percent_observations_above_var, digits=2))%")
-println("  Percentage of total cost above VaR: $(round(percent_cost_above_var, digits=2))%")
+println("  Percentage of observations below VaR: $(round(percent_observations_below_var, digits=2))%")
+println("  Percentage of total income below VaR: $(round(percent_income_below_var, digits=2))%")
 
 # Calculate histogram data once for reuse
-hist_data = histogram(all_grand_costs_timeseries, bins=100, normed=false)
+hist_data = histogram(all_grand_income_timeseries, bins=100, normed=false)
 
-# Plot histogram of aggregated cost distribution with extended margins for external legend and annotation
-p = histogram(all_grand_costs_timeseries, bins=100, 
-    title="Grand Coalition Cost Distribution",
-    xlabel="Cost per hour interval (EUR)", 
+# Plot histogram of aggregated income distribution with extended margins for external legend and annotation
+p = histogram(all_grand_income_timeseries, bins=100, 
+    title="Grand Coalition Income Distribution",
+    xlabel="Income per hour interval (EUR)", 
     ylabel="Frequency", 
     legend=:outerbottom,  # Position legend below the plot area on the right side
     yscale=:log10,
@@ -158,18 +158,18 @@ vline!([var_value], color=:red, linewidth=2, linestyle=:dash,
        label="VaR ($(round(var_level*100, digits=1))%) = $(round(var_value, digits=2)) EUR")
 
 # Add mean line
-vline!([mean_cost], color=:blue, linewidth=2, linestyle=:dot, 
-       label="Mean = $(round(mean_cost, digits=2)) EUR")
+vline!([mean_income], color=:blue, linewidth=2, linestyle=:dot, 
+       label="Mean = $(round(mean_income, digits=2)) EUR")
 
 # Create a separate text annotation outside the plot area
 # This will be added as a separate plot element below the main plot
 annotation_text = "Statistics Summary:\n" *
-    "Total hours: $(length(all_grand_costs_timeseries))\n" *
-    "Mean: $(round(mean_cost, digits=2)) EUR\n" *
-    "Median: $(round(median_cost, digits=2)) EUR\n" *
-    "Observations above VaR: $(round(percent_observations_above_var, digits=2))%\n" *
-    "Cost above VaR: $(round(percent_cost_above_var, digits=2))%\n" *
-    "Total Cost: $(round(total_cost, digits=2)) EUR"
+    "Total hours: $(length(all_grand_income_timeseries))\n" *
+    "Mean: $(round(mean_income, digits=2)) EUR\n" *
+    "Median: $(round(median_income, digits=2)) EUR\n" *
+    "Observations below VaR: $(round(percent_observations_below_var, digits=2))%\n" *
+    "Income below VaR: $(round(percent_income_below_var, digits=2))%\n" *
+    "Total Income: $(round(total_income, digits=2)) EUR"
 
 # Create a layout with the main plot and annotation below
 p_annotation = plot(framestyle=:none, showaxis=false, grid=false, legend=false, 
