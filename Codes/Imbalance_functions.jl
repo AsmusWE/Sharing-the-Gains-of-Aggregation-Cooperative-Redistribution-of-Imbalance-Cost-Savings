@@ -72,8 +72,8 @@ function optimize_imbalance(coalition, systemData, stochasticData; alpha=0.05, b
     @variable(model, imbal[1:T, 1:SDemand]) # Imbalance amount
     if !onePrice
         # Two-price scheme, separate variables for positive and negative imbalances
-        @variable(model, pos_imbal[1:T, 1:SDemand] >= 0) # Positive imbalance
-        @variable(model, neg_imbal[1:T, 1:SDemand] >= 0) # Negative imbalance
+        @variable(model, pos_imbal[1:T, 1:SDemand] >= 0) # Positive imbalance, net consumption lower than bid
+        @variable(model, neg_imbal[1:T, 1:SDemand] >= 0) # Negative imbalance, net consumption higher than bid
     end
     maxDemand = maximum(demand)
     maxProd = maximum(prod)
@@ -114,11 +114,11 @@ function optimize_imbalance(coalition, systemData, stochasticData; alpha=0.05, b
     #@constraint(model, [t = 1:T, s = 1:SDemand, sSpread = 1:SSpread],
     #            demand[t, s] - prod[t] - bid[t] + PVCurtailment[t, sSpread, s] - imbal[t, sSpread, s] == 0)
     @constraint(model, [t = 1:T, s = 1:SDemand],
-                demand[t, s] - prod[t] - bid[t] - imbal[t, s] == 0)
+                demand[t, s] - prod[t] - bid[t] + imbal[t, s] == 0)
 
     if !onePrice
         @constraint(model, [t = 1:T, s = 1:SDemand], 
-                    neg_imbal[t, s] - pos_imbal[t, s] == imbal[t, s])
+                   pos_imbal[t, s] - neg_imbal[t, s] == imbal[t, s])
     end
 
     #@constraint(model, [sSpread = 1:SSpread, s = 1:SDemand],
@@ -178,7 +178,7 @@ function calculate_bids(coalitions, systemData, stochasticData; fullOpt = true, 
     # Calculate bids for individual clients first
     individual_clients = filter(c -> length(c) == 1, coalitions)
     for client in individual_clients
-        println("Calculating bid for client: ", client)
+        #println("Calculating bid for client: ", client)
         bids[client] = optimize_imbalance(client, systemData, stochasticData; alpha=alpha, beta=beta, onePrice = onePrice)
     end
 
@@ -186,7 +186,7 @@ function calculate_bids(coalitions, systemData, stochasticData; fullOpt = true, 
         # Full optimization for all coalitions (computationally expensive)
         for coalition in coalitions
             if length(coalition) > 1
-                println("Calculating bid for coalition: ", coalition)
+                #println("Calculating bid for coalition: ", coalition)
                 bids[coalition] = optimize_imbalance(coalition, systemData, stochasticData; alpha=alpha, beta=beta, onePrice = onePrice)
             end
         end
@@ -273,7 +273,7 @@ function calculate_imbalances_specific(systemData, coalitions, stochasticData, s
     all_clients = coalitions[argmax(length.(coalitions))]
     if dummy
         # Use dummy bidding (sum of individual medians) for bids
-        bids = dummy_bidding(stochasticData, all_clients, systemData)
+        bids = dummy_bidding(stochasticData, all_clients, coalitions, systemData)
     else
         # Use two-price optimization for bids
         bids = calculate_bids(coalitions, systemData, stochasticData; fullOpt = true, alpha = alpha, beta = beta, onePrice = onePrice)
@@ -394,15 +394,59 @@ function sparse_coalitions(clients)
     return relevant_coalitions
 end
 
-function dummy_bidding(stochasticData, coalition, systemData)
+function dummy_bidding(stochasticData, clients, coalitions, systemData)
     demandScenarios = stochasticData["demand_scenarios"]
     solarMWh = systemData["price_prod_demand_df"][!, :PVForecast]
     
     # Calculate individual client bids (demand - PV production) in one step
     individual_bids = Dict(client => vec(mean(demandScenarios[client], dims=2)) - solarMWh .* systemData["clientPVOwnership"][client] 
-                          for client in coalition)
+                          for client in clients)
     
     # Calculate bids for all subcoalitions
     return Dict(subcoal => sum(individual_bids[client] for client in subcoal) 
-                for subcoal in powerset(coalition) if !isempty(subcoal))
+                for subcoal in coalitions if !isempty(subcoal))
+end
+
+function scale_equal!(systemData)
+    """
+    Scale all client demand columns in systemData["price_prod_demand_df"] to have the same 
+    maximum demand as the client with the highest maximum demand.
+    
+    Args:
+        systemData: Dictionary containing the system data with "price_prod_demand_df" DataFrame
+                   and "clientPVOwnership" dictionary
+    
+    Modifies systemData["price_prod_demand_df"] in place.
+    """
+    df = systemData["price_prod_demand_df"]
+    
+    # Get all client names from clientPVOwnership keys
+    clients = collect(keys(systemData["clientPVOwnership"]))
+    
+    # Calculate maximum demand for each client
+    max_demands = Dict{String, Float64}()
+    for client in clients
+        if hasproperty(df, Symbol(client))
+            max_demands[client] = maximum(df[!, Symbol(client)])
+        end
+    end
+    
+    # Find the overall maximum demand across all clients
+    if isempty(max_demands)
+        @warn "No client columns found in price_prod_demand_df"
+        return
+    end
+    
+    global_max_demand = maximum(values(max_demands))
+    
+    # Scale each client's demand to match the global maximum
+    for client in clients
+        if hasproperty(df, Symbol(client)) && max_demands[client] > 0
+            scaling_factor = global_max_demand / max_demands[client]
+            df[!, Symbol(client)] .*= scaling_factor
+        end
+    end
+    
+    println("Scaled all client demands to maximum demand of $global_max_demand")
+    return nothing
 end

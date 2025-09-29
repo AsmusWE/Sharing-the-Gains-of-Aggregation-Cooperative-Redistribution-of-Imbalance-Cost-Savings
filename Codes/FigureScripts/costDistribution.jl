@@ -43,7 +43,7 @@ spread_scens_length = 1 # Sets the length of the imbalance spread scenarios, wil
 alphaCVaR = 0.05 # CVaR confidence level
 beta = 1 # Weighting factor between cost and CVaR in total cost calculation
 dailyPlot = false # Whether to run the daily calculations
-dummy = true # Whether to use dummy bids (true) or optimal bids (false)
+dummy = false # Whether to use dummy bids (true) or optimal bids (false)
 onePrice = false # Whether to use one-price (true) or two-price (false)
 
 

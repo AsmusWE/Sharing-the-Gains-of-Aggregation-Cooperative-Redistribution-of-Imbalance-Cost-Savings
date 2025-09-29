@@ -117,8 +117,6 @@ function load_data()
         
         # Calculate spread
         priceData[!, :ImbalanceSpreadEUR] = priceData[!, :ImbalancePriceEUR] .- priceData[!, :SpotPriceEUR]
-        
-        priceData[!, :ImbalanceSpreadEUR] = priceData[!, :ImbalancePriceEUR] .- priceData[!, :SpotPriceEUR]
 
         #Generate DominatingDirection column based on ImbalanceSpreadEUR
         priceData[!, :DominatingDirection] = ifelse.(coalesce.(priceData[!, :ImbalanceSpreadEUR], 0.0) .> 0, 1,
