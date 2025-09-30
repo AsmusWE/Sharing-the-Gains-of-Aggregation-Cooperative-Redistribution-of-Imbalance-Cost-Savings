@@ -146,14 +146,23 @@ function optimize_imbalance(coalition, systemData, stochasticData; alpha=0.05, b
     if termination_status(model) == MOI.OPTIMAL
         #print(objective_value(model), "\n")
         if extendedOutput
-            cost = probSpread * probDemand * (sum( 
-                                #(value(bid[t]) + value(neg_imbal[t, sSpread, s]) - value(pos_imbal[t, sSpread, s])) * spotScenarios[sSpread, t] # DA bid payment and spot price part of imbalance (this cost is covered by the client)
-                                + dominantDirection[sSpread,t]*(value(pos_imbal[t, s])*spreadScenarios[sSpread,t]) # Cost of positive imbalance
-                                - (1-dominantDirection[sSpread,t])*value(neg_imbal[t, s])*spreadScenarios[sSpread,t] # Cost of negative imbalance
-                                for t in 1:T for s in 1:SDemand for sSpread in 1:SSpread))
-            cvar = value(xeta) + (1/(1-alpha)) * probSpread * probDemand * sum(value(eta[sSpread, s]) for s in 1:SDemand for sSpread in 1:SSpread)
-            return value.(bid), cost, cvar
-
+            if onePrice
+                # One-price extended output calculation
+                cost = probSpread * probDemand * (sum( 
+                                    value(imbal[t, s])*spreadScenarios[sSpread,t] # Cost of imbalance in one-price scheme
+                                    for t in 1:T for s in 1:SDemand for sSpread in 1:SSpread))
+                cvar = value(xeta) - (1/(1-alpha)) * probSpread * probDemand * sum(value(eta[sSpread, s]) for s in 1:SDemand for sSpread in 1:SSpread)
+                return value.(bid), cost, cvar
+            else
+                # Two-price extended output calculation
+                cost = probSpread * probDemand * (sum( 
+                                    #(value(bid[t]) + value(neg_imbal[t, sSpread, s]) - value(pos_imbal[t, sSpread, s])) * spotScenarios[sSpread, t] # DA bid payment and spot price part of imbalance (this cost is covered by the client)
+                                    + dominantDirection[sSpread,t]*(value(pos_imbal[t, s])*spreadScenarios[sSpread,t]) # Cost of positive imbalance
+                                    - (1-dominantDirection[sSpread,t])*value(neg_imbal[t, s])*spreadScenarios[sSpread,t] # Cost of negative imbalance
+                                    for t in 1:T for s in 1:SDemand for sSpread in 1:SSpread))
+                cvar = value(xeta) - (1/(1-alpha)) * probSpread * probDemand * sum(value(eta[sSpread, s]) for s in 1:SDemand for sSpread in 1:SSpread)
+                return value.(bid), cost, cvar
+            end
         else
             return value.(bid)
         end

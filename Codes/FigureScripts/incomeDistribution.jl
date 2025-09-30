@@ -1,4 +1,4 @@
-# This script solves the bidding problem and generates a figure showing the income distribution across hourly realizations
+# This script solves the bidding problem and generates a figure showing the costs distribution across hourly realizations
 
 
 # Imbalance_main.jl
@@ -45,10 +45,10 @@ println("Total simulation days: ", total_sim_days)
 num_scenarios_demand = 5 # Number of scenarios for demand
 num_scenarios_price = 50 # Number of scenarios for imbalance spread
 spread_scens_length = 1 # Sets the length of the imbalance spread scenarios, will repeat after this if necessary
-alphaCVaR = 0.05 # CVaR confidence level
+alphaCVaR = 0.95 # CVaR confidence level
 beta = 0 # Weighting factor between cost and CVaR in total cost calculation
 dailyPlot = false # Whether to run the daily calculations
-dummy = true # Whether to use dummy bids (true) or optimal bids (false)
+dummy = false # Whether to use dummy bids (true) or optimal bids (false)
 onePrice = true # Whether to use one-price (true) or two-price (false)
 
 
@@ -117,11 +117,15 @@ println("Completed monthly income distribution calculations. Total time series l
 # =========================
 println("Creating income distribution plot from aggregated monthly data...")
 
-# Calculate VaR at the lower tail for income risk assessment
-var_level = alphaCVaR  # Use alpha directly for lower tail (5% for alpha=0.05)
-var_value = quantile(all_grand_income_timeseries, var_level)
+# Filter to only include costs (negative values) for VaR calculation, excluding positive income
+all_grand_costs_timeseries = filter(x -> x < 0, all_grand_income_timeseries)
+println("Filtered to $(length(all_grand_costs_timeseries)) cost observations from $(length(all_grand_income_timeseries)) total observations")
 
-# Calculate additional statistics
+# Calculate VaR at the lower tail for cost risk assessment using costs only
+var_level = alphaCVaR  # Use alpha directly for lower tail (5% for alpha=0.05)
+var_value = quantile(all_grand_costs_timeseries, var_level)
+
+# Calculate additional statistics (using full income data for display)
 mean_income = mean(all_grand_income_timeseries)
 median_income = median(all_grand_income_timeseries)
 max_income = maximum(all_grand_income_timeseries)
@@ -134,18 +138,12 @@ println("  Min income: $(round(min_income, digits=2)) EUR")
 println("  Max income: $(round(max_income, digits=2)) EUR")
 println("  VaR ($(round(var_level*100, digits=1))%): $(round(var_value, digits=2)) EUR")
 
-# Calculate percentage of observations below VaR (this should be ~5% by definition for alpha=0.05)
-observations_below_var = sum(all_grand_income_timeseries .<= var_value)
-total_observations = length(all_grand_income_timeseries)
-percent_observations_below_var = (observations_below_var / total_observations) * 100
+# Calculate percentage of total costs below VaR (lower tail cost concentration)
+costs_below_var = sum(filter(x -> x <= var_value, all_grand_costs_timeseries))
+total_costs = sum(all_grand_costs_timeseries)
+percent_costs_below_var = (costs_below_var / total_costs) * 100
 
-# Calculate percentage of total income below VaR (lower tail income concentration)
-income_below_var = sum(filter(x -> x <= var_value, all_grand_income_timeseries))
-total_income = sum(all_grand_income_timeseries)
-percent_income_below_var = (income_below_var / total_income) * 100
-
-println("  Percentage of observations below VaR: $(round(percent_observations_below_var, digits=2))%")
-println("  Percentage of total income below VaR: $(round(percent_income_below_var, digits=2))%")
+println("  Percentage of total costs below VaR: $(round(percent_costs_below_var, digits=2))%")
 
 # Calculate histogram data once for reuse
 hist_data = histogram(all_grand_income_timeseries, bins=100, normed=false)
@@ -180,9 +178,8 @@ annotation_text = "Statistics Summary:\n" *
     "Total hours: $(length(all_grand_income_timeseries))\n" *
     "Mean: $(round(mean_income, digits=2)) EUR\n" *
     "Median: $(round(median_income, digits=2)) EUR\n" *
-    "Observations below VaR: $(round(percent_observations_below_var, digits=2))%\n" *
-    "Income below VaR: $(round(percent_income_below_var, digits=2))%\n" *
-    "Total Income: $(round(total_income, digits=2)) EUR"
+    "Costs below VaR: $(round(percent_costs_below_var, digits=2))%\n" *
+    "Total Income: $(round(sum(all_grand_income_timeseries), digits=2)) EUR"
 
 # Create a layout with the main plot and annotation below
 p_annotation = plot(framestyle=:none, showaxis=false, grid=false, legend=false, 
@@ -193,13 +190,3 @@ annotate!(p_annotation, 0.02, 2.5, text(annotation_text, :black, 9, :left))
 p_combined = plot(p, p_annotation, layout=grid(2,1, heights=[0.9, 0.1]))
 
 display(p_combined)
-
-
-num_positive = count(x -> x > 0.01, systemData["price_prod_demand_df"][!,"ImbalanceSpreadEUR"])
-num_negative = count(x -> x < -0.01, systemData["price_prod_demand_df"][!,"ImbalanceSpreadEUR"])
-println("Number of positive ImbalanceSpreadEUR values: $num_positive")
-println("Number of negative ImbalanceSpreadEUR values: $num_negative")
-num_positive_income = count(x -> x > 0.1, all_grand_income_timeseries)
-num_negative_income = count(x -> x < -0.1, all_grand_income_timeseries)
-println("Number of positive income hours: $num_positive_income")
-println("Number of negative income hours: $num_negative_income")

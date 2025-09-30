@@ -17,12 +17,12 @@ systemData, clients, demand = load_data()
 priceData = systemData["price_prod_demand_df"]
 
 # Filter data to only include dates before 2025
-priceData = filter(row -> 2024 <= year(row.HourUTC_datetime) < 2025, priceData)
+#priceData = filter(row -> 2024 <= year(row.HourUTC_datetime) < 2025, priceData)
 
 # Extract imbalance spread values (removing any missing values)
 imbalanceSpread = filter(!ismissing, priceData[!, :ImbalanceSpreadEUR])
 
-println("Loaded $(length(imbalanceSpread)) imbalance spread observations (In 2024)")
+println("Loaded $(length(imbalanceSpread)) imbalance spread observations")
 println("Data range: $(minimum(imbalanceSpread)) to $(maximum(imbalanceSpread)) EUR/MWh")
 
 # Calculate statistics
@@ -43,7 +43,7 @@ p1 = histogram(imbalanceSpread,
               xlabel="Imbalance Spread (EUR/MWh)",
               ylabel="Frequency",
               #yscale=:log10,
-              title="Distribution of Imbalance Spread (In 2024)",
+              title="Distribution of Imbalance Spread",
               legend=false,
               grid=true,
               gridwidth=1,

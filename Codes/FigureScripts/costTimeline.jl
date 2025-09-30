@@ -27,13 +27,13 @@ systemData, clients, demandData = load_data()
 #clients = ["A","G","I","S","Q"]  # Select 5 clients for clear visualization
 
 # Simulation parameters
-start_hour = DateTime(2024, 01, 01, 00, 0, 0)
+start_hour = DateTime(2024, 06, 01, 00, 0, 0)
 sim_days = 100  # One year for long timeframe (with 1-hour intervals: 8760 rows / 24 intervals per day = 365 days)
 num_scenarios_demand = 5
 num_scenarios_price = 50  # Reduce to require less historical data
 spread_scens_length = 1
-alphaCVaR = 0.025
-onePrice = true  # Use two-price system
+alphaCVaR = 0.95
+onePrice = true  # Choos imbalance system, false for two-price
 scale_equal = false # Whether to scale all clients to similar size
 # Side-effect of scaling: Pv production not scaled, makes it insignificant for small clients
 
@@ -430,65 +430,28 @@ plot!(p_comparison, xrotation=45)
 display(p_comparison)
 
 # =========================
-# 3B. Create Imbalance Volume Plots for Each Scenario
+# 3B. Calculate Volume Statistics for Each Scenario
 # =========================
 
-println("\nCreating imbalance volume timeline plots for all scenarios...")
+println("\nCalculating volume statistics for all scenarios...")
 
-# Create imbalance volume plots for each scenario
+# Calculate volume statistics for each scenario (without creating individual plots)
 for (scenario_name, results) in all_results
-    println("Creating imbalance volume plot for: $scenario_name")
+    println("Calculating volume statistics for: $scenario_name")
     
     # Extract imbalance volume results for this scenario
     daily_aggregated_imbalances = results["aggregated_imbalances"]
     daily_unaggregated_imbalances = results["unaggregated_imbalances"]
-    daily_dates = results["dates"]
-    
-    # Calculate cumulative imbalance volumes
-    cumulative_aggregated_imbalances = cumsum(daily_aggregated_imbalances)
-    cumulative_unaggregated_imbalances = cumsum(daily_unaggregated_imbalances)
-    cumulative_volume_reduction = cumulative_unaggregated_imbalances .- cumulative_aggregated_imbalances
-    
-    # Convert volume reduction to percentage
-    cumulative_volume_reduction_percent = (cumulative_volume_reduction ./ cumulative_unaggregated_imbalances) .* 100
-    
-    # Create the imbalance volume plot for this scenario
-    p_imbal = plot(
-        title="Imbalance Volumes: $scenario_name\n$(results["description"])",
-        xlabel="Date",
-        ylabel="Volume Reduction from Aggregation (%)",
-        legend=:topleft,
-        size=(1000, 600),
-        grid=true,
-        margins=5Plots.mm,
-        linewidth=2,
-        titlefontsize=10
-    )
-    
-    # Plot cumulative volume reduction as percentage
-    plot!(p_imbal, daily_dates, cumulative_volume_reduction_percent,
-          label="Volume Reduction from Aggregation (%)",
-          color=:green,
-          linewidth=3,
-          alpha=0.8)
     
     # Calculate and display volume reduction statistics
     total_volume_reduction = sum(daily_unaggregated_imbalances) - sum(daily_aggregated_imbalances)
     avg_daily_volume_reduction = total_volume_reduction / sim_days
     volume_reduction_percentage = (total_volume_reduction / sum(daily_unaggregated_imbalances)) * 100
-    final_cumulative_volume_reduction = cumulative_volume_reduction[end]
     
-    # Add text annotation with volume reduction information
-    final_cumulative_volume_reduction_percent = cumulative_volume_reduction_percent[end]
-    annotate!(p_imbal, daily_dates[div(sim_days, 4)], maximum(cumulative_volume_reduction_percent) * 0.85,
-             text("Final Volume Reduction: $(round(final_cumulative_volume_reduction_percent, digits=1))%\nAvg Daily Reduction: $(round(avg_daily_volume_reduction, digits=1)) MWh\nTotal Reduction: $(round(volume_reduction_percentage, digits=1))%", 
-                  9, :left, :black))
-    
-    # Format x-axis for better date display
-    plot!(p_imbal, xrotation=45)
-    
-    # Display plot in separate figure window
-    display(p_imbal)
+    # Calculate cumulative volumes for final value
+    cumulative_aggregated_imbalances = cumsum(daily_aggregated_imbalances)
+    cumulative_unaggregated_imbalances = cumsum(daily_unaggregated_imbalances)
+    final_cumulative_volume_reduction = cumulative_unaggregated_imbalances[end] - cumulative_aggregated_imbalances[end]
     
     # Store volume statistics for summary
     results["total_volume_reduction"] = total_volume_reduction
@@ -497,12 +460,12 @@ for (scenario_name, results) in all_results
     results["final_cumulative_volume_reduction"] = final_cumulative_volume_reduction
 end
 
-# Create a combined comparison plot showing volume reduction from all scenarios
+# Create a combined comparison plot showing percentage volume reduction from all scenarios
 println("\nCreating combined imbalance volume reduction comparison plot...")
 p_volume_comparison = plot(
     title="Imbalance Volume Reduction Comparison Across Bidding Strategies",
     xlabel="Date",
-    ylabel="Cumulative Volume Reduction (MWh)",
+    ylabel="Cumulative Volume Reduction (%)",
     legend=:topleft,
     size=(1200, 600),
     grid=true,
@@ -516,9 +479,14 @@ markers = [:circle, :square, :diamond]
 for (i, (scenario_name, results)) in enumerate(all_results)
     daily_aggregated_imbalances = results["aggregated_imbalances"]
     daily_unaggregated_imbalances = results["unaggregated_imbalances"]
-    cumulative_volume_reduction = cumsum(daily_unaggregated_imbalances) .- cumsum(daily_aggregated_imbalances)
+    cumulative_aggregated_imbalances = cumsum(daily_aggregated_imbalances)
+    cumulative_unaggregated_imbalances = cumsum(daily_unaggregated_imbalances)
+    cumulative_volume_reduction = cumulative_unaggregated_imbalances .- cumulative_aggregated_imbalances
     
-    plot!(p_volume_comparison, results["dates"], cumulative_volume_reduction,
+    # Convert to percentage reduction
+    cumulative_volume_reduction_percent = (cumulative_volume_reduction ./ cumulative_unaggregated_imbalances) .* 100
+    
+    plot!(p_volume_comparison, results["dates"], cumulative_volume_reduction_percent,
           label=scenario_name,
           color=colors[i],
           marker=markers[i],

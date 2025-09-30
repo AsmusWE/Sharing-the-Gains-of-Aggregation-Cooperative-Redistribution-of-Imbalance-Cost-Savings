@@ -106,10 +106,12 @@ function load_data()
         # Round down to the hour to aggregate 15-minute data
         imbalancePriceFromDetail[!, :HourUTC_datetime] = floor.(imbalancePriceFromDetail[!, :HourUTC_datetime], Hour(1))
         # Aggregate by taking the mean of the 15-minute values within each hour
+        # Handle missing values by using skipmissing in the aggregation
         imbalancePriceFromDetail = combine(groupby(imbalancePriceFromDetail, :HourUTC_datetime), 
-                                         :ImbalancePriceEUR => mean => :ImbalancePriceEUR,
-                                         :SpotPriceEUR => mean => :SpotPriceEUR)
-        
+                                         :ImbalancePriceEUR => (x -> mean(skipmissing(x))) => :ImbalancePriceEUR,
+                                         :SpotPriceEUR => (x -> mean(skipmissing(x))) => :SpotPriceEUR)
+
+
         # Then load RegulatingBalancePowerdata.csv (hourly data) to supplement
         imbalancePriceFromHourly = CSV.read("Data/RegulatingBalancePowerdata.csv", DataFrame, decimal=',')
         imbalancePriceFromHourly[!, :HourUTC_datetime] = DateTime.(imbalancePriceFromHourly[:, :HourUTC], DateFormat("yyyy-mm-dd HH:MM:SS"))
@@ -120,19 +122,34 @@ function load_data()
         additional_imbalance_data = antijoin(imbalancePriceFromHourly, imbalancePriceFromDetail, on=:HourUTC_datetime)
         imbalancePriceData = vcat(imbalancePriceFromDetail, additional_imbalance_data, cols=:intersect)
         
-        # Load spot price data
-        spotPriceData = CSV.read("Data/Elspotprices.csv", DataFrame, decimal=',')
-        spotPriceData[!, :HourUTC_datetime] = DateTime.(spotPriceData[:, :HourUTC], DateFormat("yyyy-MM-dd HH:MM:SS"))
-        spotPriceData = select(spotPriceData, [:HourUTC_datetime, :SpotPriceEUR])
+        # Load spot price data from Elspotprices.csv
+        spotPriceFromElspot = CSV.read("Data/Elspotprices.csv", DataFrame, decimal=',')
+        spotPriceFromElspot[!, :HourUTC_datetime] = DateTime.(spotPriceFromElspot[:, :HourUTC], DateFormat("yyyy-mm-dd HH:MM:SS"))
+        spotPriceFromElspot = select(spotPriceFromElspot, [:HourUTC_datetime, :SpotPriceEUR])
         
+        # Extract spot price data from ImbalancePrice.csv (already aggregated in imbalancePriceFromDetail)
+        spotPriceFromImbalance = select(imbalancePriceFromDetail, [:HourUTC_datetime, :SpotPriceEUR])
+        
+        # Combine spot price data, prioritizing Elspot data where available
+        # Use anti-join to get only the hours not already covered by Elspot data
+        additional_spot_data = antijoin(spotPriceFromImbalance, spotPriceFromElspot, on=:HourUTC_datetime)
+        spotPriceData = vcat(spotPriceFromElspot, additional_spot_data, cols=:intersect)
+        n_missing_spot = count(ismissing, spotPriceData[!, :SpotPriceEUR])
+        println("Missing SpotPriceEUR: ", n_missing_spot)
         # Join the price data on datetime first, then calculate spread
-        # Use leftjoin to keep all imbalance data, fill missing spot prices with 0
+        # Use leftjoin to keep all imbalance data
         priceData = leftjoin(imbalancePriceData, spotPriceData, on=:HourUTC_datetime)
 
+        # Print missing value summary for SpotPriceEUR and ImbalancePriceEUR
+        n_missing_spot = count(ismissing, priceData[!, :SpotPriceEUR])
+        n_missing_imbalance = count(ismissing, priceData[!, :ImbalancePriceEUR])
+        println("Missing SpotPriceEUR: ", n_missing_spot)
+        println("Missing ImbalancePriceEUR: ", n_missing_imbalance)
 
-        
-        # Fill missing spot prices with 0
-        #priceData[!, :SpotPriceEUR] = coalesce.(priceData[!, :SpotPriceEUR], 0.0)
+        # Handle missing values: If either spot price or imbalance price is missing, set both to 0
+        missing_mask = ismissing.(priceData[!, :SpotPriceEUR]) .| ismissing.(priceData[!, :ImbalancePriceEUR])
+        priceData[!, :SpotPriceEUR] = ifelse.(missing_mask, 0.0, coalesce.(priceData[!, :SpotPriceEUR], 0.0))
+        priceData[!, :ImbalancePriceEUR] = ifelse.(missing_mask, 0.0, coalesce.(priceData[!, :ImbalancePriceEUR], 0.0))
         
         # Calculate spread
         priceData[!, :ImbalanceSpreadEUR] = priceData[!, :ImbalancePriceEUR] .- priceData[!, :SpotPriceEUR]
@@ -143,6 +160,12 @@ function load_data()
         
         # Select final columns in the same order as the fifteenMinRes branch
         priceData = select(priceData, [:HourUTC_datetime, :ImbalanceSpreadEUR, :DominatingDirection, :SpotPriceEUR])
+        
+        # Final cleanup: replace any remaining missing values with 0.0 instead of removing rows
+        priceData[!, :ImbalanceSpreadEUR] = coalesce.(priceData[!, :ImbalanceSpreadEUR], 0.0)
+        priceData[!, :DominatingDirection] = coalesce.(priceData[!, :DominatingDirection], 0)
+        priceData[!, :SpotPriceEUR] = coalesce.(priceData[!, :SpotPriceEUR], 0.0)
+        
         combinedData = innerjoin(combinedData, priceData, on=:HourUTC_datetime)
     end
 
