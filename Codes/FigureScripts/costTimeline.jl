@@ -1,4 +1,4 @@
-# This plot shows the aggregated vs unaggregated costs over time for the two-price scheme
+# This plot shows the aggregated vs unaggregated income over time for the two-price scheme
 
 # --- Project Modules ---
 include("../Data_import.jl")
@@ -27,13 +27,13 @@ systemData, clients, demandData = load_data()
 #clients = ["A","G","I","S","Q"]  # Select 5 clients for clear visualization
 
 # Simulation parameters
-start_hour = DateTime(2023, 07, 01, 00, 0, 0)
-sim_days = 10  # One year for long timeframe (with 1-hour intervals: 8760 rows / 24 intervals per day = 365 days)
+start_hour = DateTime(2024, 01, 01, 00, 0, 0)
+sim_days = 100  # One year for long timeframe (with 1-hour intervals: 8760 rows / 24 intervals per day = 365 days)
 num_scenarios_demand = 5
 num_scenarios_price = 50  # Reduce to require less historical data
 spread_scens_length = 1
 alphaCVaR = 0.025
-onePrice = false  # Use two-price system
+onePrice = true  # Use two-price system
 scale_equal = false # Whether to scale all clients to similar size
 # Side-effect of scaling: Pv production not scaled, makes it insignificant for small clients
 
@@ -46,7 +46,7 @@ if scale_equal
 end
 # Define different scenarios to compare
 scenarios = [
-    (beta=0.0, dummy=false, name="Cost Only (β=0)", description="Optimize for imbalance costs only"),
+    (beta=0.0, dummy=false, name="Income Only (β=0)", description="Optimize for imbalance income only"),
     (beta=1.0, dummy=false, name="CVaR Only (β=1)", description="Optimize for CVaR (risk) only"), 
     (beta=0.5, dummy=true, name="Dummy Bidding", description="Simple mean-based bidding strategy")
 ]
@@ -100,10 +100,10 @@ stochasticData["dominantDirection01"] = generate_dominant_direction(stochasticDa
 systemData = set_period!(systemData, start_hour, sim_days)
 
 # =========================
-# 2. Calculate Daily Costs for All Scenarios
+# 2. Calculate Daily Income for All Scenarios
 # =========================
 
-println("Calculating daily costs for aggregated and unaggregated scenarios...")
+println("Calculating daily income for aggregated and unaggregated scenarios...")
 
 # Initialize storage for all scenarios
 all_results = Dict()
@@ -117,13 +117,13 @@ for (i, scenario) in enumerate(scenarios)
     println("="^60)
     
     # Initialize storage for this scenario
-    daily_aggregated_costs = Float64[]
-    daily_unaggregated_costs = Float64[]
+    daily_aggregated_income = Float64[]
+    daily_unaggregated_income = Float64[]
     daily_aggregated_imbalances = Float64[]
     daily_unaggregated_imbalances = Float64[]
     daily_dates = Date[]
     
-    # Calculate costs for each day
+    # Calculate income for each day
     for day in 1:sim_days
         println("Processing day $day of $sim_days for $(scenario.name)")
         
@@ -137,24 +137,24 @@ for (i, scenario) in enumerate(scenarios)
         # Create coalitions for this calculation
         coalitions = sparse_coalitions(clients)
         
-        # Calculate costs for this day
+        # Calculate income for this day
         totalCostsDict, dailyCosts, cvarDict, imbalancesDict = calculate_total_costs_specific(
             daily_systemData, coalitions, stochasticData, 1; 
             alpha=alphaCVaR, beta=scenario.beta, dummy=scenario.dummy, onePrice=onePrice
         )
         
-        # Use only regular imbalance costs (dailyCosts) for all scenarios
-        # This ensures we're comparing pure imbalance costs without CVaR components
-        aggregated_cost = dailyCosts[clients]
-        unaggregated_cost = sum(dailyCosts[[client]] for client in clients)
+        # Use only regular imbalance income (dailyCosts represents income when negative)
+        # This ensures we're comparing pure imbalance income without CVaR components
+        aggregated_income = dailyCosts[clients]
+        unaggregated_income = sum(dailyCosts[[client]] for client in clients)
         
         # Calculate imbalance volumes (absolute values for aggregation comparison)
         aggregated_imbalance_volume = sum(abs.(imbalancesDict[clients]))
         unaggregated_imbalance_volume = sum(sum(abs.(imbalancesDict[[client]])) for client in clients)
         
         # Store results
-        push!(daily_aggregated_costs, aggregated_cost)
-        push!(daily_unaggregated_costs, unaggregated_cost)
+        push!(daily_aggregated_income, aggregated_income)
+        push!(daily_unaggregated_income, unaggregated_income)
         push!(daily_aggregated_imbalances, aggregated_imbalance_volume)
         push!(daily_unaggregated_imbalances, unaggregated_imbalance_volume)
         push!(daily_dates, Date(current_day))
@@ -162,8 +162,8 @@ for (i, scenario) in enumerate(scenarios)
     
     # Store results for this scenario
     all_results[scenario.name] = Dict(
-        "aggregated" => daily_aggregated_costs,
-        "unaggregated" => daily_unaggregated_costs,
+        "aggregated" => daily_aggregated_income,
+        "unaggregated" => daily_unaggregated_income,
         "aggregated_imbalances" => daily_aggregated_imbalances,
         "unaggregated_imbalances" => daily_unaggregated_imbalances,
         "dates" => daily_dates,
@@ -191,11 +191,11 @@ scenario = scenarios[dummy_scenario]
 println("Using scenario: $(scenario.name) - $(scenario.description)")
 
 # Initialize storage for selected client and grand coalition income timelines
-daily_selected_client_costs = Float64[]
-daily_grand_coalition_costs = Float64[]
+daily_selected_client_income = Float64[]
+daily_grand_coalition_income = Float64[]
 daily_dates_income = Date[]
 
-# Calculate daily costs for selected client vs grand coalition under dummy bidding
+# Calculate daily income for selected client vs grand coalition under dummy bidding
 for day in 1:sim_days
     println("Processing day $day of $sim_days for income timeline")
     
@@ -209,25 +209,25 @@ for day in 1:sim_days
     # Create coalitions for this calculation (need both singleton selected client and grand coalition)
     coalitions = [[selected_client], clients]  # Selected client alone and grand coalition
     
-    # Calculate costs for this day using dummy bidding
+    # Calculate income for this day using dummy bidding
     totalCostsDict, dailyCosts, cvarDict, imbalancesDict = calculate_total_costs_specific(
         daily_systemData, coalitions, stochasticData, 1; 
         alpha=alphaCVaR, beta=scenario.beta, dummy=scenario.dummy, onePrice=onePrice
     )
     
-    # Extract costs (negative cost = positive income)
-    selected_client_cost = dailyCosts[[selected_client]]
-    grand_coalition_cost = dailyCosts[clients]
+    # Extract income (dailyCosts represents income when negative, cost when positive)
+    selected_client_income = dailyCosts[[selected_client]]
+    grand_coalition_income = dailyCosts[clients]
     
     # Store results
-    push!(daily_selected_client_costs, selected_client_cost)
-    push!(daily_grand_coalition_costs, grand_coalition_cost)
+    push!(daily_selected_client_income, selected_client_income)
+    push!(daily_grand_coalition_income, grand_coalition_income)
     push!(daily_dates_income, Date(current_day))
 end
 
-# Calculate cumulative income (negative cumulative costs)
-cumulative_selected_client_income = -cumsum(daily_selected_client_costs)
-cumulative_grand_coalition_income = -cumsum(daily_grand_coalition_costs)
+# Calculate cumulative income
+cumulative_selected_client_income = cumsum(daily_selected_client_income)
+cumulative_grand_coalition_income = cumsum(daily_grand_coalition_income)
 
 # Scale both sets of values to end up with income of 1 if positive or -1 if negative
 final_selected_client_income = cumulative_selected_client_income[end]
@@ -273,8 +273,8 @@ plot!(p_income, daily_dates_income, cumulative_grand_coalition_income,
       alpha=0.8)
 
 # Calculate and display income statistics
-total_selected_client_income = sum(-daily_selected_client_costs)
-total_grand_coalition_income = sum(-daily_grand_coalition_costs)
+total_selected_client_income = sum(daily_selected_client_income)
+total_grand_coalition_income = sum(daily_grand_coalition_income)
 avg_daily_selected_client_income = total_selected_client_income / sim_days
 avg_daily_grand_coalition_income = total_grand_coalition_income / sim_days
 
@@ -327,20 +327,21 @@ for (scenario_name, results) in all_results
     println("Creating plot for: $scenario_name")
     
     # Extract results for this scenario
-    daily_aggregated_costs = results["aggregated"]
-    daily_unaggregated_costs = results["unaggregated"]
+    daily_aggregated_income = results["aggregated"]
+    daily_unaggregated_income = results["unaggregated"]
     daily_dates = results["dates"]
     
-    # Calculate cumulative costs
-    cumulative_aggregated_costs = cumsum(daily_aggregated_costs)
-    cumulative_unaggregated_costs = cumsum(daily_unaggregated_costs)
-    cumulative_savings = cumulative_unaggregated_costs .- cumulative_aggregated_costs
+    # Calculate cumulative income
+    cumulative_aggregated_income = cumsum(daily_aggregated_income)
+    cumulative_unaggregated_income = cumsum(daily_unaggregated_income)
+    # Calculate gains from aggregation (aggregated income should be higher)
+    cumulative_gains = cumulative_aggregated_income .- cumulative_unaggregated_income
     
     # Create the plot for this scenario
     p = plot(
         title="$scenario_name\n$(results["description"])",
         xlabel="Date",
-        ylabel="Cumulative Cost (EUR)",
+        ylabel="Cumulative Income (EUR)",
         legend=:topleft,
         size=(1000, 600),
         grid=true,
@@ -349,37 +350,37 @@ for (scenario_name, results) in all_results
         titlefontsize=10
     )
     
-    # Plot cumulative aggregated costs (grand coalition)
-    plot!(p, daily_dates, cumulative_aggregated_costs,
-          label="Aggregated Costs (Coalition)",
+    # Plot cumulative aggregated income (grand coalition)
+    plot!(p, daily_dates, cumulative_aggregated_income,
+          label="Aggregated Income (Coalition)",
           color=:blue,
           linewidth=3,
           alpha=0.8)
     
-    # Plot cumulative unaggregated costs (sum of individual costs)
-    plot!(p, daily_dates, cumulative_unaggregated_costs,
-          label="Unaggregated Costs (Individual)",
+    # Plot cumulative unaggregated income (sum of individual income)
+    plot!(p, daily_dates, cumulative_unaggregated_income,
+          label="Unaggregated Income (Individual)",
           color=:red,
           linewidth=3,
           alpha=0.8)
     
-    # Plot cumulative savings (difference between the two)
-    plot!(p, daily_dates, cumulative_savings,
-          label="Cumulative Savings",
+    # Plot cumulative gains from aggregation
+    plot!(p, daily_dates, cumulative_gains,
+          label="Cumulative Gains from Aggregation",
           color=:green,
           linewidth=3,
           alpha=0.8,
           linestyle=:dash)
     
-    # Calculate and display savings
-    total_savings = sum(daily_unaggregated_costs) - sum(daily_aggregated_costs)
-    avg_daily_savings = total_savings / sim_days
-    savings_percentage = (total_savings / sum(daily_unaggregated_costs)) * 100
-    final_cumulative_savings = cumulative_savings[end]
+    # Calculate and display gains from aggregation
+    total_gains = sum(daily_aggregated_income) - sum(daily_unaggregated_income)
+    avg_daily_gains = total_gains / sim_days
+    gains_percentage = (total_gains / sum(daily_unaggregated_income)) * 100
+    final_cumulative_gains = cumulative_gains[end]
     
-    # Add text annotation with savings information
-    annotate!(p, daily_dates[div(sim_days, 4)], maximum(cumulative_unaggregated_costs) * 0.85,
-             text("Final Savings: €$(round(final_cumulative_savings, digits=2))\nDaily Avg: €$(round(avg_daily_savings, digits=2))\nSavings: $(round(savings_percentage, digits=1))%", 
+    # Add text annotation with gains information
+    annotate!(p, daily_dates[div(sim_days, 4)], maximum(cumulative_aggregated_income) * 0.85,
+             text("Final Gains: €$(round(final_cumulative_gains, digits=2))\nDaily Avg: €$(round(avg_daily_gains, digits=2))\nGains: $(round(gains_percentage, digits=1))%", 
                   9, :left, :black))
     
     # Format x-axis for better date display
@@ -389,18 +390,18 @@ for (scenario_name, results) in all_results
     display(p)
     
     # Store statistics for summary
-    results["total_savings"] = total_savings
-    results["avg_daily_savings"] = avg_daily_savings
-    results["savings_percentage"] = savings_percentage
-    results["final_cumulative_savings"] = final_cumulative_savings
+    results["total_gains"] = total_gains
+    results["avg_daily_gains"] = avg_daily_gains
+    results["gains_percentage"] = gains_percentage
+    results["final_cumulative_gains"] = final_cumulative_gains
 end
 
-# Create a combined comparison plot showing savings from all scenarios
+# Create a combined comparison plot showing gains from all scenarios
 println("\nCreating combined comparison plot...")
 p_comparison = plot(
-    title="Cumulative Savings Comparison Across Bidding Strategies",
+    title="Cumulative Gains from Aggregation Comparison Across Bidding Strategies",
     xlabel="Date",
-    ylabel="Cumulative Savings (EUR)",
+    ylabel="Cumulative Gains from Aggregation (EUR)",
     legend=:topleft,
     size=(1200, 600),
     grid=true,
@@ -412,11 +413,11 @@ colors = [:blue, :red, :purple]
 markers = [:circle, :square, :diamond]
 
 for (i, (scenario_name, results)) in enumerate(all_results)
-    daily_aggregated_costs = results["aggregated"]
-    daily_unaggregated_costs = results["unaggregated"]
-    cumulative_savings = cumsum(daily_unaggregated_costs) .- cumsum(daily_aggregated_costs)
+    daily_aggregated_income = results["aggregated"]
+    daily_unaggregated_income = results["unaggregated"]
+    cumulative_gains = cumsum(daily_aggregated_income) .- cumsum(daily_unaggregated_income)
     
-    plot!(p_comparison, results["dates"], cumulative_savings,
+    plot!(p_comparison, results["dates"], cumulative_gains,
           label=scenario_name,
           color=colors[i],
           marker=markers[i],
@@ -532,7 +533,7 @@ display(p_volume_comparison)
 # =========================
 # 4. Print Comprehensive Summary Statistics
 # ========================= println("\n" * "="^80)
-println("COMPREHENSIVE COST TIMELINE SUMMARY")
+println("COMPREHENSIVE INCOME TIMELINE SUMMARY")
 println("="^80)
 println("Simulation period: $(all_results[scenarios[1].name]["dates"][1]) to $(all_results[scenarios[1].name]["dates"][end])")
 println("Number of days: $sim_days")
@@ -540,18 +541,18 @@ println("Number of clients: $(length(clients))")
 println("Clients: $(join(clients, ", "))")
 println()
 
-# Print comparison table for costs
-println("COST SAVINGS COMPARISON:")
+# Print comparison table for income gains
+println("INCOME GAINS FROM AGGREGATION COMPARISON:")
 println("-"^70)
-@printf("%-20s %15s %15s %10s\n", "Scenario", "Total Savings", "Daily Average", "Savings %")
+@printf("%-20s %15s %15s %10s\n", "Scenario", "Total Gains", "Daily Average", "Gains %")
 println("-"^70)
 
 for (scenario_name, results) in all_results
     @printf("%-20s %15s %15s %10s\n", 
            scenario_name,
-           "€$(round(results["total_savings"], digits=0))",
-           "€$(round(results["avg_daily_savings"], digits=2))", 
-           "$(round(results["savings_percentage"], digits=1))%")
+           "€$(round(results["total_gains"], digits=0))",
+           "€$(round(results["avg_daily_gains"], digits=2))", 
+           "$(round(results["gains_percentage"], digits=1))%")
 end
 println("-"^70)
 
@@ -573,22 +574,10 @@ println("-"^80)
 # Detailed summary for each scenario
 for (scenario_name, results) in all_results
     println("\n$scenario_name: $(results["description"])")
-    println("  COST SAVINGS:")
-    println("    Total savings: €$(round(results["total_savings"], digits=0))")
-    println("    Savings percentage: $(round(results["savings_percentage"], digits=1))%")
+    println("  INCOME GAINS FROM AGGREGATION:")
+    println("    Total gains: €$(round(results["total_gains"], digits=0))")
+    println("    Gains percentage: $(round(results["gains_percentage"], digits=1))%")
     println("  IMBALANCE VOLUME REDUCTION:")
     println("    Total volume reduction: $(round(results["total_volume_reduction"], digits=1)) MWh")
     println("    Volume reduction percentage: $(round(results["volume_reduction_percentage"], digits=1))%")
 end
-
-println("\n" * "="^80)
-println("COMPLETE ANALYSIS SUMMARY")
-println("="^80)
-println("Three bidding strategies compared over $sim_days days")
-println("Analysis includes both cost savings and imbalance volume reduction from aggregation")
-println("Plots generated:")
-println("  - Individual cost timeline plots for each scenario")
-println("  - Combined cost savings comparison")
-println("  - Individual imbalance volume timeline plots for each scenario")
-println("  - Combined imbalance volume reduction comparison")
-println("="^80)

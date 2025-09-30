@@ -22,15 +22,20 @@ Random.seed!(1) # Set seed for reproducibility
 # 1. Data Loading & Setup
 # =========================
 systemData, clients, demandData = load_data()
-firstHour = minimum(systemData["price_prod_demand_df"][!, :HourUTC_datetime])
-lastHour = maximum(systemData["price_prod_demand_df"][!, :HourUTC_datetime])
+
+# Sort the data by datetime to ensure chronological order
+println("Sorting systemData by datetime...")
+sort!(systemData["price_prod_demand_df"], :HourUTC_datetime)
+sort!(demandData, :HourUTC_datetime)
+println("Data sorted successfully.")
+
 # Filter out smallest clients for full plot all coalitions, down from 22 to 19
 #clients = filter(x -> !(x in ["X", "W", "N"]), clients)
 # Filter down to 12 for nucleolus
 #clients = filter(x -> !(x in ["F", "V", "J","E", "T", "O", "Y"]), clients)
 #clients = ["A","G"]
 
-start_hour = DateTime(2023, 8, 01, 00, 0, 0)
+start_hour = DateTime(2024, 1, 01, 00, 0, 0)
 simulation_months = 12 # Number of months to simulate
 month_length = 30 # Days in a month
 total_sim_days = simulation_months * month_length # Calculate total simulation days
@@ -41,9 +46,9 @@ num_scenarios_demand = 5 # Number of scenarios for demand
 num_scenarios_price = 50 # Number of scenarios for imbalance spread
 spread_scens_length = 1 # Sets the length of the imbalance spread scenarios, will repeat after this if necessary
 alphaCVaR = 0.05 # CVaR confidence level
-beta = 1 # Weighting factor between cost and CVaR in total cost calculation
+beta = 0 # Weighting factor between cost and CVaR in total cost calculation
 dailyPlot = false # Whether to run the daily calculations
-dummy = false # Whether to use dummy bids (true) or optimal bids (false)
+dummy = true # Whether to use dummy bids (true) or optimal bids (false)
 onePrice = true # Whether to use one-price (true) or two-price (false)
 
 
@@ -60,8 +65,7 @@ stochasticData = Dict(
 stochasticData["imbalance_spread"], stochasticData["spot_price"] = generate_scenarios_imbalance_spread(systemData, start_hour, spread_scens_length; num_scenarios=num_scenarios_price)
 stochasticData["dominantDirection01"] = generate_dominant_direction(stochasticData["imbalance_spread"])
 
-# Note: We will not cut systemData here, as we need to slice it month by month
-
+#systemData = set_period!(systemData, start_hour, total_sim_days)
 
 # =========================
 # 2. Monthly Imbalance Calculation and Income Distribution Aggregation
@@ -77,7 +81,9 @@ for month in 1:simulation_months
     println("Processing month ", month, " of ", simulation_months)
     
     # Set data for current month
-    monthData = set_period!(deepcopy(systemData), start_hour + Dates.Day((month-1)*month_length), month_length)
+    month_start = start_hour + Dates.Day((month-1)*month_length)
+    monthData = set_period!(deepcopy(systemData), month_start, month_length)
+    
     sim_days = month_length
     stochasticData["demand_scenarios"] = generate_scenarios_demand_rolling(clients, demandData, start_hour + Dates.Day((month-1)*month_length), month_length; num_scenarios=num_scenarios_demand)
     # Calculate costs for this month
@@ -102,6 +108,7 @@ for month in 1:simulation_months
     # Force garbage collection to free memory
     GC.gc()
 end
+
 
 println("Completed monthly income distribution calculations. Total time series length: ", length(all_grand_income_timeseries))
 
@@ -143,9 +150,14 @@ println("  Percentage of total income below VaR: $(round(percent_income_below_va
 # Calculate histogram data once for reuse
 hist_data = histogram(all_grand_income_timeseries, bins=100, normed=false)
 
+# Create title with pricing and bidding strategy information
+pricing_scheme = onePrice ? "One-Price" : "Two-Price"
+bidding_strategy = dummy ? "Dummy Bidding" : "Optimal Bidding"
+plot_title = "Grand Coalition Income Distribution\n$(pricing_scheme) Scheme, $(bidding_strategy)"
+
 # Plot histogram of aggregated income distribution with extended margins for external legend and annotation
 p = histogram(all_grand_income_timeseries, bins=100, 
-    title="Grand Coalition Income Distribution",
+    title=plot_title,
     xlabel="Income per hour interval (EUR)", 
     ylabel="Frequency", 
     legend=:outerbottom,  # Position legend below the plot area on the right side
@@ -164,6 +176,7 @@ vline!([mean_income], color=:blue, linewidth=2, linestyle=:dot,
 # Create a separate text annotation outside the plot area
 # This will be added as a separate plot element below the main plot
 annotation_text = "Statistics Summary:\n" *
+    "Scheme: $(pricing_scheme), Strategy: $(bidding_strategy)\n" *
     "Total hours: $(length(all_grand_income_timeseries))\n" *
     "Mean: $(round(mean_income, digits=2)) EUR\n" *
     "Median: $(round(median_income, digits=2)) EUR\n" *
@@ -182,5 +195,11 @@ p_combined = plot(p, p_annotation, layout=grid(2,1, heights=[0.9, 0.1]))
 display(p_combined)
 
 
-
-
+num_positive = count(x -> x > 0.01, systemData["price_prod_demand_df"][!,"ImbalanceSpreadEUR"])
+num_negative = count(x -> x < -0.01, systemData["price_prod_demand_df"][!,"ImbalanceSpreadEUR"])
+println("Number of positive ImbalanceSpreadEUR values: $num_positive")
+println("Number of negative ImbalanceSpreadEUR values: $num_negative")
+num_positive_income = count(x -> x > 0.1, all_grand_income_timeseries)
+num_negative_income = count(x -> x < -0.1, all_grand_income_timeseries)
+println("Number of positive income hours: $num_positive_income")
+println("Number of negative income hours: $num_negative_income")

@@ -84,7 +84,7 @@ function load_data()
         priceData = select(priceData, [:HourUTC_datetime, :ImbalancePriceEUR, :SpotPriceEUR, :DominatingDirection])
         priceData[!, :ImbalanceSpreadEUR] = priceData[!, :ImbalancePriceEUR] .- priceData[!, :SpotPriceEUR]
         # Fill missing ImbalanceSpreadEUR values with 0.0
-        priceData[!, :ImbalanceSpreadEUR] = coalesce.(priceData[!, :ImbalanceSpreadEUR], 0.0)
+        #priceData[!, :ImbalanceSpreadEUR] = coalesce.(priceData[!, :ImbalanceSpreadEUR], 0.0)
         
         # Fill missing DominatingDirection values based on ImbalanceSpreadEUR
         #priceData[!, :DominatingDirection] = coalesce.(priceData[!, :DominatingDirection], 
@@ -100,10 +100,27 @@ function load_data()
         # Merge price data with combined data
         combinedData = innerjoin(combinedData, priceData, on=:HourUTC_datetime)
     else
-        imbalancePriceData = CSV.read("Data/RegulatingBalancePowerdata.csv", DataFrame, decimal=',')
-        imbalancePriceData[!, :HourUTC_datetime] = DateTime.(imbalancePriceData[:, :HourUTC], DateFormat("yyyy-mm-dd HH:MM:SS"))
-        imbalancePriceData = select(imbalancePriceData, [:HourUTC_datetime, :ImbalancePriceEUR])
+        # First load ImbalancePrice.csv data (15-minute resolution) and aggregate to hourly
+        imbalancePriceFromDetail = CSV.read("Data/ImbalancePrice.csv", DataFrame, decimal=',')
+        imbalancePriceFromDetail[!, :HourUTC_datetime] = DateTime.(imbalancePriceFromDetail[:, :TimeUTC], DateFormat("yyyy-mm-dd HH:MM:SS"))
+        # Round down to the hour to aggregate 15-minute data
+        imbalancePriceFromDetail[!, :HourUTC_datetime] = floor.(imbalancePriceFromDetail[!, :HourUTC_datetime], Hour(1))
+        # Aggregate by taking the mean of the 15-minute values within each hour
+        imbalancePriceFromDetail = combine(groupby(imbalancePriceFromDetail, :HourUTC_datetime), 
+                                         :ImbalancePriceEUR => mean => :ImbalancePriceEUR,
+                                         :SpotPriceEUR => mean => :SpotPriceEUR)
         
+        # Then load RegulatingBalancePowerdata.csv (hourly data) to supplement
+        imbalancePriceFromHourly = CSV.read("Data/RegulatingBalancePowerdata.csv", DataFrame, decimal=',')
+        imbalancePriceFromHourly[!, :HourUTC_datetime] = DateTime.(imbalancePriceFromHourly[:, :HourUTC], DateFormat("yyyy-mm-dd HH:MM:SS"))
+        imbalancePriceFromHourly = select(imbalancePriceFromHourly, [:HourUTC_datetime, :ImbalancePriceEUR])
+        
+        # Combine the two imbalance price datasets, prioritizing the detailed data
+        # Use anti-join to get only the hours not already covered by the detailed data
+        additional_imbalance_data = antijoin(imbalancePriceFromHourly, imbalancePriceFromDetail, on=:HourUTC_datetime)
+        imbalancePriceData = vcat(imbalancePriceFromDetail, additional_imbalance_data, cols=:intersect)
+        
+        # Load spot price data
         spotPriceData = CSV.read("Data/Elspotprices.csv", DataFrame, decimal=',')
         spotPriceData[!, :HourUTC_datetime] = DateTime.(spotPriceData[:, :HourUTC], DateFormat("yyyy-MM-dd HH:MM:SS"))
         spotPriceData = select(spotPriceData, [:HourUTC_datetime, :SpotPriceEUR])
@@ -111,9 +128,11 @@ function load_data()
         # Join the price data on datetime first, then calculate spread
         # Use leftjoin to keep all imbalance data, fill missing spot prices with 0
         priceData = leftjoin(imbalancePriceData, spotPriceData, on=:HourUTC_datetime)
+
+
         
         # Fill missing spot prices with 0
-        priceData[!, :SpotPriceEUR] = coalesce.(priceData[!, :SpotPriceEUR], 0.0)
+        #priceData[!, :SpotPriceEUR] = coalesce.(priceData[!, :SpotPriceEUR], 0.0)
         
         # Calculate spread
         priceData[!, :ImbalanceSpreadEUR] = priceData[!, :ImbalancePriceEUR] .- priceData[!, :SpotPriceEUR]
@@ -129,6 +148,8 @@ function load_data()
 
     # --- Reverse the order of rows in combinedData ---
     combinedData = reverse(combinedData)
+    #println("First hour in data: ", combinedData[1, :HourUTC_datetime])
+    #println("Last hour in data: ", combinedData[end, :HourUTC_datetime])
 
     # --- Collect system data ---
     systemData = Dict(

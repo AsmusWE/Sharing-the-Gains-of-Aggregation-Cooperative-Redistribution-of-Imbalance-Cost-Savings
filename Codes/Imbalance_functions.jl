@@ -204,10 +204,24 @@ end
 
 function create_time_period_data(systemData, startDay, intervals)
     start_interval = findfirst(x -> x >= startDay, systemData["price_prod_demand_df"][!, "HourUTC_datetime"])
+    
+    # Check if start date was found in the data
+    if start_interval === nothing
+        data_range = "$(systemData["price_prod_demand_df"][1, "HourUTC_datetime"]) to $(systemData["price_prod_demand_df"][end, "HourUTC_datetime"])"
+        error("Start date $startDay not found in available data range: $data_range")
+    end
+    
     tempData = deepcopy(systemData)
     
     try
         end_interval = start_interval + intervals - 1
+        
+        # Check if end_interval exceeds available data
+        if end_interval > nrow(systemData["price_prod_demand_df"])
+            data_range = "$(systemData["price_prod_demand_df"][1, "HourUTC_datetime"]) to $(systemData["price_prod_demand_df"][end, "HourUTC_datetime"])"
+            error("Requested time period ($startDay + $intervals intervals) exceeds available data range: $data_range")
+        end
+        
         tempData["price_prod_demand_df"] = systemData["price_prod_demand_df"][start_interval:end_interval, :]
     catch e
         if isa(e, BoundsError)
@@ -365,7 +379,6 @@ function calculate_total_costs_specific(systemData, coalitions, stochasticData, 
         total_cost = cost_weight * sum(imbalance_costs) + cvar_weight * tail_cost
         total_costs_dict[coalition] = total_cost
     end
-    println("Cost calculation completed.")
     return total_costs_dict, costs_dict, cvar_dict, imbalancesDict
 end
 

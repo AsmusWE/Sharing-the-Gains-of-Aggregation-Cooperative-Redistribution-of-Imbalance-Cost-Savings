@@ -4,6 +4,7 @@ using Plots
 using DataFrames
 using Statistics
 using StatsBase
+using Dates
 
 # Include the data import module
 include("../Data_import.jl")
@@ -15,10 +16,13 @@ systemData, clients, demand = load_data()
 # Extract the combined data containing imbalance spread
 priceData = systemData["price_prod_demand_df"]
 
+# Filter data to only include dates before 2025
+priceData = filter(row -> 2024 <= year(row.HourUTC_datetime) < 2025, priceData)
+
 # Extract imbalance spread values (removing any missing values)
 imbalanceSpread = filter(!ismissing, priceData[!, :ImbalanceSpreadEUR])
 
-println("Loaded $(length(imbalanceSpread)) imbalance spread observations")
+println("Loaded $(length(imbalanceSpread)) imbalance spread observations (In 2024)")
 println("Data range: $(minimum(imbalanceSpread)) to $(maximum(imbalanceSpread)) EUR/MWh")
 
 # Calculate statistics
@@ -38,8 +42,8 @@ p1 = histogram(imbalanceSpread,
               color=:steelblue,
               xlabel="Imbalance Spread (EUR/MWh)",
               ylabel="Frequency",
-              yscale=:log10,
-              title="Distribution of Imbalance Spread",
+              #yscale=:log10,
+              title="Distribution of Imbalance Spread (In 2024)",
               legend=false,
               grid=true,
               gridwidth=1,
@@ -49,30 +53,8 @@ p1 = histogram(imbalanceSpread,
 vline!(p1, [mean_spread], color=:red, linewidth=2, linestyle=:dash, label="Mean")
 vline!(p1, [median_spread], color=:orange, linewidth=2, linestyle=:dot, label="Median")
 
-# Create density plot using normalized histogram
-p2 = histogram(imbalanceSpread,
-              bins=50,
-              normalize=:pdf,  # This creates a probability density function
-              alpha=0.7,
-              color=:lightcoral,
-              xlabel="Imbalance Spread (EUR/MWh)",
-              ylabel="Density",
-              yscale=:log10,
-              title="Probability Density of Imbalance Spread",
-              legend=false,
-              grid=true,
-              gridwidth=1,
-              gridcolor=:lightgray)
-
-# Add vertical lines for mean and median
-vline!(p2, [mean_spread], color=:red, linewidth=2, linestyle=:dash, label="Mean")
-vline!(p2, [median_spread], color=:orange, linewidth=2, linestyle=:dot, label="Median")
-
-# Combine plots
-combined_plot = plot(p1, p2, layout=(2,1), size=(800, 600))
-
 # Display the plot
-display(combined_plot)
+display(p1)
 
 # Additional analysis - show quartiles and extremes
 q25 = quantile(imbalanceSpread, 0.25)
