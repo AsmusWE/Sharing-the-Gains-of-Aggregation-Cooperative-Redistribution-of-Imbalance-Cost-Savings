@@ -20,20 +20,14 @@ Random.seed!(1) # Set seed for reproducibility
 # Load system data
 systemData, clients, demandData = load_data()
 
-# Filter clients for manageable computation
-#clients = filter(x -> !(x in ["A","G"]), clients)
-#clients = filter(x -> !(x in ["X", "W", "N"]), clients)
-#clients = filter(x -> !(x in ["F", "V", "J","E", "T", "O", "Y"]), clients)
-#clients = ["A","G","I","S","Q"]  # Select 5 clients for clear visualization
-
 # Simulation parameters
-start_hour = DateTime(2024, 06, 01, 00, 0, 0)
-sim_days = 100  # One year for long timeframe (with 1-hour intervals: 8760 rows / 24 intervals per day = 365 days)
+start_hour = DateTime(2024, 01, 01, 00, 0, 0)
+sim_days = 365  # One year for long timeframe (with 1-hour intervals: 8760 rows / 24 intervals per day = 365 days)
 num_scenarios_demand = 5
 num_scenarios_price = 50  # Reduce to require less historical data
 spread_scens_length = 1
 alphaCVaR = 0.95
-onePrice = true  # Choos imbalance system, false for two-price
+onePrice = true  # Choose imbalance system, false for two-price
 scale_equal = false # Whether to scale all clients to similar size
 # Side-effect of scaling: Pv production not scaled, makes it insignificant for small clients
 
@@ -278,11 +272,6 @@ total_grand_coalition_income = sum(daily_grand_coalition_income)
 avg_daily_selected_client_income = total_selected_client_income / sim_days
 avg_daily_grand_coalition_income = total_grand_coalition_income / sim_days
 
-# Add text annotation with income information
-annotate!(p_income, daily_dates_income[div(sim_days, 4)], max(maximum(cumulative_selected_client_income), maximum(cumulative_grand_coalition_income)) * 0.85,
-         text("Final Client $(selected_client) Income: €$(round(cumulative_selected_client_income[end], digits=2))\nFinal Grand Coalition Income: €$(round(cumulative_grand_coalition_income[end], digits=2))\nDaily Avg Client $(selected_client): €$(round(avg_daily_selected_client_income, digits=2))\nDaily Avg Grand Coalition: €$(round(avg_daily_grand_coalition_income, digits=2))", 
-              10, :left, :black))
-
 # Format x-axis for better date display
 plot!(p_income, xrotation=45)
 
@@ -338,8 +327,14 @@ for (scenario_name, results) in all_results
     cumulative_gains = cumulative_aggregated_income .- cumulative_unaggregated_income
     
     # Create the plot for this scenario
+    plot_title = if onePrice
+        "$scenario_name (One-Price System)\n$(results["description"])"
+    else
+        "$scenario_name\n$(results["description"])"
+    end
+    
     p = plot(
-        title="$scenario_name\n$(results["description"])",
+        title=plot_title,
         xlabel="Date",
         ylabel="Cumulative Income (EUR)",
         legend=:topleft,
@@ -350,27 +345,37 @@ for (scenario_name, results) in all_results
         titlefontsize=10
     )
     
-    # Plot cumulative aggregated income (grand coalition)
-    plot!(p, daily_dates, cumulative_aggregated_income,
-          label="Aggregated Income (Coalition)",
-          color=:blue,
-          linewidth=3,
-          alpha=0.8)
-    
-    # Plot cumulative unaggregated income (sum of individual income)
-    plot!(p, daily_dates, cumulative_unaggregated_income,
-          label="Unaggregated Income (Individual)",
-          color=:red,
-          linewidth=3,
-          alpha=0.8)
-    
-    # Plot cumulative gains from aggregation
-    plot!(p, daily_dates, cumulative_gains,
-          label="Cumulative Gains from Aggregation",
-          color=:green,
-          linewidth=3,
-          alpha=0.8,
-          linestyle=:dash)
+    if onePrice
+        # For one-price system, only show aggregated income
+        plot!(p, daily_dates, cumulative_aggregated_income,
+              label="Aggregated Income (Coalition)",
+              color=:blue,
+              linewidth=3,
+              alpha=0.8)
+    else
+        # For two-price system, show both aggregated and unaggregated income
+        # Plot cumulative aggregated income (grand coalition)
+        plot!(p, daily_dates, cumulative_aggregated_income,
+              label="Aggregated Income (Coalition)",
+              color=:blue,
+              linewidth=3,
+              alpha=0.8)
+        
+        # Plot cumulative unaggregated income (sum of individual income)
+        plot!(p, daily_dates, cumulative_unaggregated_income,
+              label="Unaggregated Income (Individual)",
+              color=:red,
+              linewidth=3,
+              alpha=0.8)
+        
+        # Plot cumulative gains from aggregation
+        plot!(p, daily_dates, cumulative_gains,
+              label="Cumulative Gains from Aggregation",
+              color=:green,
+              linewidth=3,
+              alpha=0.8,
+              linestyle=:dash)
+    end
     
     # Calculate and display gains from aggregation
     total_gains = sum(daily_aggregated_income) - sum(daily_unaggregated_income)
@@ -378,10 +383,6 @@ for (scenario_name, results) in all_results
     gains_percentage = (total_gains / sum(daily_unaggregated_income)) * 100
     final_cumulative_gains = cumulative_gains[end]
     
-    # Add text annotation with gains information
-    annotate!(p, daily_dates[div(sim_days, 4)], maximum(cumulative_aggregated_income) * 0.85,
-             text("Final Gains: €$(round(final_cumulative_gains, digits=2))\nDaily Avg: €$(round(avg_daily_gains, digits=2))\nGains: $(round(gains_percentage, digits=1))%", 
-                  9, :left, :black))
     
     # Format x-axis for better date display
     plot!(p, xrotation=45)
@@ -396,38 +397,42 @@ for (scenario_name, results) in all_results
     results["final_cumulative_gains"] = final_cumulative_gains
 end
 
-# Create a combined comparison plot showing gains from all scenarios
-println("\nCreating combined comparison plot...")
-p_comparison = plot(
-    title="Cumulative Gains from Aggregation Comparison Across Bidding Strategies",
-    xlabel="Date",
-    ylabel="Cumulative Gains from Aggregation (EUR)",
-    legend=:topleft,
-    size=(1200, 600),
-    grid=true,
-    margins=5Plots.mm,
-    linewidth=3
-)
+# Create a combined comparison plot showing gains from all scenarios (only for two-price system)
+if !onePrice
+    println("\nCreating combined comparison plot...")
+    p_comparison = plot(
+        title="Cumulative Gains from Aggregation Comparison Across Bidding Strategies",
+        xlabel="Date",
+        ylabel="Cumulative Gains from Aggregation (EUR)",
+        legend=:topleft,
+        size=(1200, 600),
+        grid=true,
+        margins=5Plots.mm,
+        linewidth=3
+    )
 
-colors = [:blue, :red, :purple]
-markers = [:circle, :square, :diamond]
+    colors = [:blue, :red, :purple]
+    markers = [:circle, :square, :diamond]
 
-for (i, (scenario_name, results)) in enumerate(all_results)
-    daily_aggregated_income = results["aggregated"]
-    daily_unaggregated_income = results["unaggregated"]
-    cumulative_gains = cumsum(daily_aggregated_income) .- cumsum(daily_unaggregated_income)
-    
-    plot!(p_comparison, results["dates"], cumulative_gains,
-          label=scenario_name,
-          color=colors[i],
-          marker=markers[i],
-          markersize=2,
-          alpha=0.8)
+    for (i, (scenario_name, results)) in enumerate(all_results)
+        daily_aggregated_income = results["aggregated"]
+        daily_unaggregated_income = results["unaggregated"]
+        cumulative_gains = cumsum(daily_aggregated_income) .- cumsum(daily_unaggregated_income)
+        
+        plot!(p_comparison, results["dates"], cumulative_gains,
+              label=scenario_name,
+              color=colors[i],
+              marker=markers[i],
+              markersize=2,
+              alpha=0.8)
+    end
+
+    plot!(p_comparison, xrotation=45)
+
+    display(p_comparison)
+else
+    println("\nSkipping combined comparison plot (one-price system has no aggregation gains)")
 end
-
-plot!(p_comparison, xrotation=45)
-
-display(p_comparison)
 
 # =========================
 # 3B. Calculate Volume Statistics for Each Scenario

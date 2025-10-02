@@ -397,50 +397,28 @@ function gately_point_interval(clients, imbalancesDict, systemData)
 end
 
 function full_cost_transfer(clients, imbalanceDict, systemData)
-    # Initializing
+    # Applies a uniform pricing redistribution of the grand coalition income gains
+    # Adapted to work with income-based calculations instead of costs
     grand_coalition = vec(clients)
     imbalanceSpread = systemData["price_prod_demand_df"][!, "ImbalanceSpreadEUR"]
     dominantDirection = systemData["price_prod_demand_df"][!, "DominatingDirection"]
-    clientCost = Dict(client => 0.0 for client in clients)
+    clientIncome = Dict(client => 0.0 for client in clients)
+    tempSum = Dict(client => 0.0 for client in clients)
 
     for t in 1:length(imbalanceDict[[clients[1]]])
-        singletonCosts = 0.0
-        helpingImbalances = 0.0 # Imbalances opposite the dominant direction
-        # If dominant direction is 0, there is no redistribution because of no costs
-        if dominantDirection[t] == 0
+        
+        tCostOfImbalance = imbalanceDict[grand_coalition][t] * imbalanceSpread[t]/sum(imbalanceDict[[c]][t] for c in clients)
+        if imbalanceDict[grand_coalition][t] * dominantDirection[t] >= 0
+            # No imbalance in the grand coalition in the dominant direction, skip this time step
             continue
         end
         for client in clients
             client_imbalance = imbalanceDict[[client]][t]
-            if client_imbalance * dominantDirection[t] > 0
-                # Client has imbalance in the dominant direction
-                clientCost[client] += client_imbalance * imbalanceSpread[t]
-                singletonCosts += client_imbalance * imbalanceSpread[t]
-            elseif client_imbalance * dominantDirection[t] < 0
-                # Client has imbalance in the non-dominant direction
-                helpingImbalances += abs(client_imbalance)
-            end
-        end
-        # Calculate grand coalition cost for the current time period
-        grandCoalitionCost = 0.0
-        if imbalanceDict[grand_coalition][t] * dominantDirection[t] > 0
-            # Grand coalition has imbalance in the dominant direction
-            grandCoalitionCost = imbalanceDict[grand_coalition][t] * imbalanceSpread[t]
-        end
-
-        # Redistributing surplus to clients with imbalances in the non-dominant direction according to imbalance size
-        if helpingImbalances > 0
-            helpingPrice = (singletonCosts - grandCoalitionCost) / helpingImbalances
-            for client in clients
-                client_imbalance = imbalanceDict[[client]][t]
-                if client_imbalance * dominantDirection[t] < 0
-                    # Client has imbalance in the non-dominant direction
-                    clientCost[client] += -abs(client_imbalance) * helpingPrice
-                end
-            end
+            clientIncome[client] += client_imbalance * tCostOfImbalance 
         end
     end
-    return clientCost
+    
+    return clientIncome
 end
 
 function reduced_cost(clients, imbalancesDict, systemData)

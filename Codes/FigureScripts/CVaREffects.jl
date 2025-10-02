@@ -32,7 +32,7 @@ lastHour = maximum(systemData["price_prod_demand_df"][!, :HourUTC_datetime])
 #clients = ["A","G"]
 
 start_hour = DateTime(2024, 01, 01, 00, 0, 0)
-sim_days = 28
+sim_days = 360
 println("Simulation period: ", start_hour, " to ", start_hour + Dates.Day(sim_days))
 println("Number of simulation days: ", sim_days)
 println("Number of clients: ", length(clients))
@@ -42,6 +42,7 @@ num_scenarios_demand = 5
 num_scenarios_price = 50
 spread_scens_length = 1
 alphaCVaR = 0.95  # CVaR confidence level
+onePrice = true  # One-price (true) or two-price (false)
 beta_values = vcat([0.001], collect(0.1:0.1:1))  # Add 0.001 as the first value
 # Setup stochastic data
 stochasticData = Dict(
@@ -59,7 +60,6 @@ stochasticData["dominantDirection01"] = generate_dominant_direction(stochasticDa
 
 # Cut systemData and demandData to the simulation period
 systemData = set_period!(systemData, start_hour, sim_days)
-demandData = set_period!(demandData, start_hour, sim_days)
 
 # =========================
 # 2. CVaR Analysis for Different Beta Values
@@ -86,7 +86,6 @@ for (i, coalition) in enumerate(coalitions_to_analyze)
     coalition_name = "Full_Coalition"
     push!(results["coalition_names"], coalition_name)
     
-    results["total_income"][coalition_name] = Float64[]
     results["regular_income"][coalition_name] = Float64[]
     results["cvar_income"][coalition_name] = Float64[]
 end
@@ -100,7 +99,7 @@ for (beta_idx, beta) in enumerate(beta_values)
     
     # Calculate total income, regular income, and CVaR for current beta
     totalIncomeDict, incomeDict, cvarDict, imbalancesDict = calculate_total_costs_specific(
-        systemData, coalitions_to_analyze, stochasticData, sim_days; alpha=alphaCVaR, beta = beta
+        systemData, coalitions_to_analyze, stochasticData, sim_days; alpha=alphaCVaR, beta = beta, onePrice = onePrice
     )
     
     # Store results for each coalition
@@ -110,16 +109,14 @@ for (beta_idx, beta) in enumerate(beta_values)
         # Calculate weighted total income using current beta
         regular_income = incomeDict[coalition]
         cvar_income = cvarDict[coalition]
-        total_income = regular_income + cvar_income
         
-        push!(results["total_income"][coalition_name], total_income)
         push!(results["regular_income"][coalition_name], regular_income)
         push!(results["cvar_income"][coalition_name], cvar_income)
     end
 
     # Also calculate expected income and CVaR
     println("Calculating expected income and CVaR for beta = $beta")
-    bids, expected_income, expected_cvar = optimize_imbalance(clients, systemData, stochasticData; alpha=alphaCVaR, beta = beta, extendedOutput=true)
+    bids, expected_income, expected_cvar = optimize_imbalance(clients, systemData, stochasticData; alpha=alphaCVaR, beta = beta, onePrice = onePrice, extendedOutput=true)
     
     # Store expected income and CVaR
     push!(results["expected_income"], expected_income)
@@ -130,21 +127,13 @@ end
 # =========================
 # 3. Analysis and Visualization
 # =========================
-
-println("\n=== Results Summary ===")
-coalition_name = "Full_Coalition"
-println("\n$coalition_name:")
-println("  Regular income: $(round(results["regular_income"][coalition_name][1], digits=2))")
-println("  CVaR income: $(round(results["cvar_income"][coalition_name][1], digits=2))")
-println("  Total income: $(round(results["total_income"][coalition_name][1], digits=2))")
-
 # Create plots
 gr() # Use GR backend for plotting
 
 full_coalition_name = "Full_Coalition"
 
 # Plot 4: Regular Income vs CVaR Income with Beta values as scatter points
-p4 = scatter(title="Realized Total Income vs Realized 5% Tail Income", xlabel="Total Income", ylabel="5% tail Income")
+p4 = scatter(title="Realized Income vs Realized 5% Tail Income", xlabel="Income", ylabel="5% tail Income")
 
 # Plot regular points first
 scatter!(p4, results["regular_income"][full_coalition_name], results["cvar_income"][full_coalition_name],
@@ -174,7 +163,7 @@ for (i, beta) in enumerate(results["beta_values"])
 end
 
 # Plot 5: Expected Income vs Expected CVaR with Beta values as scatter points
-p5 = scatter(title="Expected Total Income vs Expected 5% Tail Income", xlabel="Expected Total Income", ylabel="Expected 5% Tail Income")
+p5 = scatter(title="Expected Income vs Expected 5% Tail Income", xlabel="Expected Income", ylabel="Expected 5% Tail Income")
 
 # Plot regular points first
 scatter!(p5, results["expected_income"], results["expected_cvars"],

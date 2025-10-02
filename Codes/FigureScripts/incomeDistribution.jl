@@ -46,7 +46,7 @@ num_scenarios_demand = 5 # Number of scenarios for demand
 num_scenarios_price = 50 # Number of scenarios for imbalance spread
 spread_scens_length = 1 # Sets the length of the imbalance spread scenarios, will repeat after this if necessary
 alphaCVaR = 0.95 # CVaR confidence level
-beta = 0 # Weighting factor between cost and CVaR in total cost calculation
+beta = 1 # Weighting factor between cost and CVaR in total cost calculation
 dailyPlot = false # Whether to run the daily calculations
 dummy = false # Whether to use dummy bids (true) or optimal bids (false)
 onePrice = true # Whether to use one-price (true) or two-price (false)
@@ -76,6 +76,8 @@ println("Calculating income distribution using monthly chunks to save RAM...")
 # Initialize arrays to store aggregated results
 all_grand_income_timeseries = Float64[]
 monthly_imbalance_spreads = Float64[]
+# Initialize arrays for timeline functionality
+all_timestamps = DateTime[]
 
 for month in 1:simulation_months
     println("Processing month ", month, " of ", simulation_months)
@@ -95,6 +97,7 @@ for month in 1:simulation_months
     T_month = sim_days * 24
     imbalance_spread_month = monthData["price_prod_demand_df"][1:T_month, "ImbalanceSpreadEUR"]
     grand_imbalances_month = imbalancesDict[clients]
+
     grand_income_timeseries_month = grand_imbalances_month .* imbalance_spread_month
     if !onePrice
         # For two-price scheme, only consider negative income 
@@ -105,6 +108,10 @@ for month in 1:simulation_months
     append!(all_grand_income_timeseries, grand_income_timeseries_month)
     append!(monthly_imbalance_spreads, imbalance_spread_month)
     
+    # Store timestamps for timeline (create hourly timestamps for this month)
+    month_timestamps = [month_start + Dates.Hour(h) for h in 0:(T_month-1)]
+    append!(all_timestamps, month_timestamps)
+    
     # Force garbage collection to free memory
     GC.gc()
 end
@@ -113,17 +120,87 @@ end
 println("Completed monthly income distribution calculations. Total time series length: ", length(all_grand_income_timeseries))
 
 # =========================
-# 3. Plot Aggregated Income Distribution
+# 3A. Create Cumulative Income Timeline Plot
+# =========================
+println("Creating cumulative income timeline plot from hourly data...")
+
+# Calculate cumulative income from all hourly data
+cumulative_income_timeseries = cumsum(all_grand_income_timeseries)
+
+# Calculate timeline statistics
+total_annual_income = sum(all_grand_income_timeseries)
+total_hours = length(all_grand_income_timeseries)
+avg_hourly_income = total_annual_income / total_hours
+final_cumulative_income = cumulative_income_timeseries[end]
+
+println("Timeline statistics:")
+println("  Total annual income: $(round(total_annual_income, digits=2)) EUR")
+println("  Average hourly income: $(round(avg_hourly_income, digits=4)) EUR") 
+println("  Final cumulative income: $(round(final_cumulative_income, digits=2)) EUR")
+println("  Total hours simulated: $(total_hours)")
+
+# Create the timeline plot with proper time sampling for visualization
+# Sample data points for better performance (every 24 hours = daily points)
+sample_interval = 24  # Show daily points
+sample_indices = 1:sample_interval:length(all_timestamps)
+sampled_timestamps = all_timestamps[sample_indices]
+sampled_cumulative = cumulative_income_timeseries[sample_indices]
+
+pricing_scheme = onePrice ? "One-Price" : "Two-Price"
+bidding_strategy = dummy ? "Dummy Bidding" : "Optimal Bidding"
+timeline_title = "Cumulative Income Timeline - Grand Coalition (Hourly Data)\n$(pricing_scheme) Scheme, $(bidding_strategy), beta = $(beta)"
+
+p_timeline = plot(
+    title=timeline_title,
+    xlabel="Date",
+    ylabel="Cumulative Income (EUR)",
+    legend=:topleft,
+    size=(1200, 600),
+    grid=true,
+    margins=5Plots.mm,
+    linewidth=2,
+    titlefontsize=12
+)
+
+# Plot cumulative income timeline (sampled for performance)
+plot!(p_timeline, sampled_timestamps, sampled_cumulative,
+      label="Cumulative Income (Daily Points)",
+      color=:blue,
+      linewidth=3,
+      alpha=0.8)
+
+# Add zero line for reference
+hline!(p_timeline, [0], color=:black, linestyle=:dash, alpha=0.5, label="Zero Line")
+
+# Format x-axis for better date display
+plot!(p_timeline, xrotation=45)
+
+# Add statistics as text annotation
+timeline_annotation = "Total Income: $(round(total_annual_income, digits=0)) EUR\n" *
+                     "Avg Hourly: $(round(avg_hourly_income, digits=2)) EUR\n" *
+                     "$(total_hours) total hours\n" *
+                     "Showing every $(sample_interval)h"
+
+# Position annotation in upper left area
+max_cum = maximum(sampled_cumulative)
+min_cum = minimum(sampled_cumulative)
+y_pos = min_cum + 0.8 * (max_cum - min_cum)
+x_pos = sampled_timestamps[div(length(sampled_timestamps), 4)]
+
+annotate!(p_timeline, x_pos, y_pos, 
+         text(timeline_annotation, :black, 10, :left))
+
+display(p_timeline)
+
+# =========================
+# 3B. Plot Aggregated Income Distribution
 # =========================
 println("Creating income distribution plot from aggregated monthly data...")
 
-# Filter to only include costs (negative values) for VaR calculation, excluding positive income
-all_grand_costs_timeseries = filter(x -> x < 0, all_grand_income_timeseries)
-println("Filtered to $(length(all_grand_costs_timeseries)) cost observations from $(length(all_grand_income_timeseries)) total observations")
 
-# Calculate VaR at the lower tail for cost risk assessment using costs only
-var_level = alphaCVaR  # Use alpha directly for lower tail (5% for alpha=0.05)
-var_value = quantile(all_grand_costs_timeseries, var_level)
+# Calculate VaR at the lower tail for cost risk assessment 
+var_level = 1-alphaCVaR  
+var_value = quantile(all_grand_income_timeseries, var_level)
 
 # Calculate additional statistics (using full income data for display)
 mean_income = mean(all_grand_income_timeseries)
@@ -139,6 +216,9 @@ println("  Max income: $(round(max_income, digits=2)) EUR")
 println("  VaR ($(round(var_level*100, digits=1))%): $(round(var_value, digits=2)) EUR")
 
 # Calculate percentage of total costs below VaR (lower tail cost concentration)
+# Filter to only include costs (negative values) for VaR calculation, excluding positive income
+all_grand_costs_timeseries = filter(x -> x < 0, all_grand_income_timeseries)
+
 costs_below_var = sum(filter(x -> x <= var_value, all_grand_costs_timeseries))
 total_costs = sum(all_grand_costs_timeseries)
 percent_costs_below_var = (costs_below_var / total_costs) * 100
@@ -151,7 +231,7 @@ hist_data = histogram(all_grand_income_timeseries, bins=100, normed=false)
 # Create title with pricing and bidding strategy information
 pricing_scheme = onePrice ? "One-Price" : "Two-Price"
 bidding_strategy = dummy ? "Dummy Bidding" : "Optimal Bidding"
-plot_title = "Grand Coalition Income Distribution\n$(pricing_scheme) Scheme, $(bidding_strategy)"
+plot_title = "Grand Coalition Income Distribution\n$(pricing_scheme) Scheme, $(bidding_strategy), beta = $(beta)"
 
 # Plot histogram of aggregated income distribution with extended margins for external legend and annotation
 p = histogram(all_grand_income_timeseries, bins=100, 

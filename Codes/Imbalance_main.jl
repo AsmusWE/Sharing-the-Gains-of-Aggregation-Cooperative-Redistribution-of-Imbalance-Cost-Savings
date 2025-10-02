@@ -60,7 +60,7 @@ lastHour = maximum(systemData["price_prod_demand_df"][!, :HourUTC_datetime])
 
 start_hour = DateTime(2024, 04, 01, 00, 0, 0)
 #sim_days = Int(floor((lastHour - start_hour) / Dates.Day(1))) # Calculate number of days from start_hour to lastHour
-sim_days = 50
+sim_days = 1
 println("Simulation period: ", start_hour, " to ", start_hour + Dates.Day(sim_days))
 println("Number of simulation days: ", sim_days)
 num_scenarios_demand = 5 # Number of scenarios for demand
@@ -95,17 +95,17 @@ demandData = set_period!(demandData, start_hour, sim_days)
 # 2. Imbalance Calculation and allocation
 # =========================
 # Remove allocation methods that are not suitable for cost+CVaR yet
-allocations = filter(x -> !(x in ["full_cost", "reduced_cost", "gately_interval"]), allocations)
+allocations = filter(x -> !(x in ["reduced_cost", "gately_interval"]), allocations)
 # Remove allocation methods that do not work with the simple calculations 
 allocations = filter(x -> !(x in ["shapley", "nucleolus"]), allocations)
 coalitions = sparse_coalitions(clients)
 println("Calculating total costs (regular costs + CVaR) for simple plot...")
 totalCostsDict, costsDict, cvarDict, imbalancesDict = @time calculate_total_costs_specific(
-    systemData, coalitions, stochasticData, sim_days; alpha=alphaCVaR, beta = beta, dummy = false, onePrice = true
+    systemData, coalitions, stochasticData, sim_days; alpha=alphaCVaR, beta = beta, dummy = false, onePrice = false
 )
 
 allocation_costs = calculate_allocations(
-    allocations, clients, totalCostsDict, imbalancesDict, systemData; printing = true, alpha=alphaCVaR
+    allocations, clients, costsDict, imbalancesDict, systemData; printing = true, alpha=alphaCVaR
 )
 
 println("Total costs (regular + CVaR): ", totalCostsDict[clients])
