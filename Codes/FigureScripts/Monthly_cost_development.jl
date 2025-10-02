@@ -50,6 +50,7 @@ println("Running daily optimization and calculating allocations...")
 dailyAllocationCosts = []
 dailyClientDemand = []
 dailyImbalancesDict = []
+dailyCVarCosts = []  # Add storage for daily CVaR costs
 all_grand_income_timeseries = []
 all_timestamps = []
 
@@ -80,6 +81,9 @@ for day in 1:total_sim_days
     
     # Store daily imbalances
     push!(dailyImbalancesDict, daily_imbalances)
+    
+    # Store daily CVaR costs
+    push!(dailyCVarCosts, daily_cvar_costs)
     
     # Calculate daily allocations using proper game theory functions
     daily_allocation_costs = calculate_allocations(
@@ -559,3 +563,252 @@ if length(clients) > 0
 end
 
 display(p_combined)
+
+# =========================
+# 6. Third Plot: Flat Rate Payment + Previous Month's CVaR Addition
+# =========================
+println("Creating third plot: Flat rate payment with monthly CVaR adjustments...")
+
+# First, let's aggregate daily CVaR costs by month for each client
+# dailyCVarCosts is already stored from the daily loop above
+
+# Debug: Check if CVaR costs are being stored
+println("Debugging CVaR costs...")
+println("Number of days with CVaR data: $(length(dailyCVarCosts))")
+if length(dailyCVarCosts) > 0
+    println("Sample CVaR data for day 1: $(dailyCVarCosts[1])")
+    client_coalition = [clients[1]]
+    if haskey(dailyCVarCosts[1], client_coalition)
+        println("CVaR for client $(clients[1]) (as coalition $client_coalition) on day 1: $(dailyCVarCosts[1][client_coalition])")
+    else
+        println("Client coalition $client_coalition not found in CVaR data")
+        println("Available keys in CVaR data: $(keys(dailyCVarCosts[1]))")
+    end
+end
+
+# Calculate monthly CVaR totals for each client
+monthly_cvar_totals = Dict{String, Vector{Float64}}()
+for client in clients
+    monthly_cvar_totals[client] = zeros(length(monthly_dates))
+end
+
+# Aggregate CVaR costs by month
+for (month_idx, month_date) in enumerate(monthly_dates)
+    # Find days in this month
+    month_days = []
+    for day in 1:total_sim_days
+        day_date = Date(start_hour + Dates.Day(day - 1))
+        if Date(year(day_date), month(day_date), 1) == month_date
+            push!(month_days, day)
+        end
+    end
+    
+    # Calculate monthly CVaR totals for each client
+    for client in clients
+        month_cvar_total = 0.0
+        for day in month_days
+            # CVaR data is stored by coalition, so individual client CVaR is stored as [client]
+            client_coalition = [client]
+            if haskey(dailyCVarCosts[day], client_coalition)
+                month_cvar_total += dailyCVarCosts[day][client_coalition]
+            end
+        end
+        monthly_cvar_totals[client][month_idx] = month_cvar_total
+        # Debug: Print first month's totals
+        if month_idx == 1
+            println("Month 1 CVaR total for client $client: $month_cvar_total")
+        end
+    end
+end
+
+# Debug: Print monthly CVaR totals for first few months
+println("Sample monthly CVaR totals:")
+for client in clients[1:min(2, length(clients))]
+    println("Client $client monthly CVaR totals (first 3 months): $(monthly_cvar_totals[client][1:min(3, length(monthly_dates))])")
+end
+
+# Calculate the payment schedule: flat rate + current month's CVaR
+monthly_cvar_adjustments = Dict{String, Vector{Float64}}()
+for client in clients
+    monthly_cvar_adjustments[client] = zeros(length(monthly_dates))
+    # Apply CVaR adjustment for each month
+    for month_idx in 1:length(monthly_dates)
+        # Add current month's CVaR to the adjustment (negative sign to make it a payment)
+        monthly_cvar_adjustments[client][month_idx] = -monthly_cvar_totals[client][month_idx]
+    end
+end
+
+# Expand monthly CVaR adjustments to daily timeline
+function expand_monthly_cvar_to_daily(monthly_cvar_adjustments, monthly_dates, start_date, total_days)
+    daily_cvar_adjustments = zeros(total_days)
+    
+    for day in 1:total_days
+        current_date = Date(start_date + Dates.Day(day-1))
+        current_month = Date(year(current_date), month(current_date), 1)
+        
+        # Find which month this day belongs to
+        month_index = findfirst(d -> d == current_month, monthly_dates)
+        
+        # Check if this is the last day of the month
+        next_day = current_date + Dates.Day(1)
+        is_last_day_of_month = month(next_day) != month(current_date) || day == total_days
+        
+        # Apply CVaR adjustment on the last day of the month
+        if is_last_day_of_month && month_index !== nothing
+            daily_cvar_adjustments[day] = monthly_cvar_adjustments[month_index]
+        end
+    end
+    
+    return daily_cvar_adjustments
+end
+
+# Create the third plot
+p_cvar_plot = plot(layout=(length(clients) + 1, 1), size=(1400, 600*(length(clients) + 1)))
+
+# Plot for each client
+for (i, client) in enumerate(clients)
+    # Extract daily data (reuse from previous sections)
+    daily_allocation_costs = []
+    for day in 1:total_sim_days
+        if haskey(dailyAllocationCosts[day], allocation_method) && haskey(dailyAllocationCosts[day][allocation_method], client)
+            push!(daily_allocation_costs, dailyAllocationCosts[day][allocation_method][client])
+        else
+            push!(daily_allocation_costs, 0.0)
+        end
+    end
+    
+    daily_flat_rate_income = [dailyClientFlatRateIncome[day][client] for day in 1:total_sim_days]
+    
+    # Expand monthly CVaR adjustments to daily timeline
+    daily_cvar_adjustments = expand_monthly_cvar_to_daily(
+        monthly_cvar_adjustments[client], monthly_dates, start_hour, total_sim_days
+    )
+    
+    # Calculate cumulative values
+    cumulative_allocation = cumsum(daily_allocation_costs)
+    cumulative_flat_rate = cumsum(daily_flat_rate_income)
+    cumulative_cvar_adjustments = cumsum(daily_cvar_adjustments)
+    
+    # Total payment = flat rate + CVaR adjustments
+    total_payment_with_cvar = cumulative_flat_rate .+ cumulative_cvar_adjustments
+    
+    # Calculate net position (allocation income + total payment)
+    net_position_with_cvar = cumulative_allocation .+ total_payment_with_cvar
+    
+    # Create the plot
+    plot!(p_cvar_plot[i], daily_time_axis, cumulative_flat_rate,
+          label="Cumulative Flat Rate Payment",
+          linewidth=2,
+          color=:green,
+          linestyle=:dash,
+          title="Client $client: Flat Rate + Current Month CVaR Payment",
+          xlabel="Date",
+          ylabel="Cumulative Amount (EUR)",
+          legend=:outerbottom,
+          legend_columns=3,
+          grid=true,
+          margins=8Plots.mm,
+          xrotation=45,
+          tickfontsize=10,
+          guidefontsize=12,
+          titlefontsize=14)
+    
+    plot!(p_cvar_plot[i], daily_time_axis, cumulative_allocation,
+          label="Allocated Income",
+          linewidth=2,
+          color=:blue)
+    
+    plot!(p_cvar_plot[i], daily_time_axis, cumulative_cvar_adjustments,
+          label="Cumulative CVaR Adjustments (Current Month)",
+          linewidth=2,
+          color=:orange,
+          linestyle=:dot)
+    
+    plot!(p_cvar_plot[i], daily_time_axis, total_payment_with_cvar,
+          label="Total Payment (Flat Rate + CVaR)",
+          linewidth=2,
+          color=:purple,
+          alpha=0.7)
+    
+    plot!(p_cvar_plot[i], daily_time_axis, net_position_with_cvar,
+          label="Net Position (Income + Payment)",
+          linewidth=3,
+          color=:red,
+          linestyle=:dash,
+          alpha=0.8)
+    
+    # Add horizontal line at zero for reference
+    hline!(p_cvar_plot[i], [0], color=:black, linestyle=:dot, alpha=0.5, label="")
+end
+
+# Add system total subplot
+if length(clients) > 0
+    # Calculate total CVaR adjustments across all clients
+    total_daily_cvar_adjustments = zeros(total_sim_days)
+    for client in clients
+        daily_cvar_adjustments = expand_monthly_cvar_to_daily(
+            monthly_cvar_adjustments[client], monthly_dates, start_hour, total_sim_days
+        )
+        total_daily_cvar_adjustments .+= daily_cvar_adjustments
+    end
+    
+    # Calculate totals (reuse already calculated values)
+    cumulative_total_allocation = daily_total_allocation_pos  # From section 4
+    cumulative_total_flat_rate = daily_total_flat_rate_pos   # From section 4
+    cumulative_total_cvar_adjustments = cumsum(total_daily_cvar_adjustments)
+    
+    total_payment_with_cvar = cumulative_total_flat_rate .+ cumulative_total_cvar_adjustments
+    system_net_position_with_cvar = cumulative_total_allocation .+ total_payment_with_cvar
+    
+    subplot_index = length(clients) + 1
+    plot!(p_cvar_plot[subplot_index], daily_time_axis, cumulative_total_flat_rate,
+          label="Total Flat Rate Payments",
+          linewidth=2,
+          color=:green,
+          linestyle=:dash,
+          title="System Total: Flat Rate + Current Month CVaR Payment",
+          xlabel="Date",
+          ylabel="Total Cumulative Amount (EUR)",
+          legend=:outerbottom,
+          legend_columns=3,
+          grid=true,
+          margins=8Plots.mm,
+          xrotation=45,
+          tickfontsize=10,
+          guidefontsize=12,
+          titlefontsize=14)
+    
+    plot!(p_cvar_plot[subplot_index], daily_time_axis, cumulative_total_allocation,
+          label="Total Allocated Income",
+          linewidth=2,
+          color=:blue)
+    
+    plot!(p_cvar_plot[subplot_index], daily_time_axis, cumulative_total_cvar_adjustments,
+          label="Total CVaR Adjustments (Current Month)",
+          linewidth=2,
+          color=:orange,
+          linestyle=:dot)
+    
+    plot!(p_cvar_plot[subplot_index], daily_time_axis, total_payment_with_cvar,
+          label="Total Payment (Flat Rate + CVaR)",
+          linewidth=2,
+          color=:purple,
+          alpha=0.7)
+    
+    plot!(p_cvar_plot[subplot_index], daily_time_axis, system_net_position_with_cvar,
+          label="Total Net Position",
+          linewidth=3,
+          color=:red,
+          linestyle=:dash,
+          alpha=0.8)
+    
+    # Calculate and display final balance
+    final_balance_cvar = cumulative_total_allocation[end] + total_payment_with_cvar[end]
+    println("Final system balance with CVaR adjustments: $(round(final_balance_cvar, digits=2)) EUR")
+    println("Final balance as percentage: $(round(abs(final_balance_cvar)/abs(cumulative_total_allocation[end])*100, digits=4))%")
+    
+    # Add horizontal line at zero for reference
+    hline!(p_cvar_plot[subplot_index], [0], color=:black, linestyle=:dot, alpha=0.5, label="")
+end
+
+display(p_cvar_plot)
