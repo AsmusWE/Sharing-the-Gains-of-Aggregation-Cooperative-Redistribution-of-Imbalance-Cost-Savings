@@ -312,149 +312,66 @@ end
 display(p_clients)
 
 # =========================
-# 5. Monthly Reconciliation Plot
+# 4b. Calculate Monthly Reconciliation Data
 # =========================
-println("Creating monthly reconciliation plot...")
+# Create monthly reconciliation by calculating the difference between allocated income and flat rate payments
+# Group by month and calculate reconciliation needed to balance the accounts
 
-# Function to calculate monthly reconciliation payments
-function calculate_monthly_reconciliation(daily_allocation_costs, daily_flat_rate_income, start_date, total_days)
-    monthly_reconciliation = Dict{String, Vector{Float64}}()
-    monthly_dates = Vector{Date}()
-    
-    # Group data by month
-    monthly_data = Dict{Date, Dict{String, Dict{String, Float64}}}()
-    
-    for day in 1:total_days
-        current_date = Date(start_date + Dates.Day(day-1))
-        month_start = Date(year(current_date), month(current_date), 1)
-        
-        if !haskey(monthly_data, month_start)
-            monthly_data[month_start] = Dict{String, Dict{String, Float64}}()
-            for client in clients
-                monthly_data[month_start][client] = Dict("allocation" => 0.0, "flat_rate" => 0.0)
-            end
-        end
-        
-        # Add daily data to monthly accumulation
-        for client in clients
-            allocation_cost = haskey(daily_allocation_costs[day], allocation_method) && 
-                            haskey(daily_allocation_costs[day][allocation_method], client) ? 
-                            daily_allocation_costs[day][allocation_method][client] : 0.0
-            flat_rate_income = daily_flat_rate_income[day][client]
-            
-            monthly_data[month_start][client]["allocation"] += allocation_cost
-            monthly_data[month_start][client]["flat_rate"] += flat_rate_income
+# Create monthly dates for the simulation period
+start_date = Date(start_hour)
+end_date = Date(start_hour + Dates.Day(total_sim_days - 1))
+
+# Generate monthly dates using a simple approach
+first_month = Date(year(start_date), month(start_date), 1)
+last_month = Date(year(end_date), month(end_date), 1)
+
+# Calculate number of months manually
+start_year_month = year(first_month) * 12 + month(first_month)
+end_year_month = year(last_month) * 12 + month(last_month)
+num_months = end_year_month - start_year_month + 1
+
+# Create monthly dates using comprehension
+monthly_dates = [first_month + Dates.Month(i) for i in 0:(num_months-1)]
+
+# Initialize monthly reconciliation dictionary
+monthly_reconciliation = Dict{String, Vector{Float64}}()
+for client in clients
+    monthly_reconciliation[client] = zeros(length(monthly_dates))
+end
+
+# Calculate monthly reconciliation for each client
+for (month_idx, month_date) in enumerate(monthly_dates)
+    # Find days in this month
+    month_days = []
+    for day in 1:total_sim_days
+        day_date = Date(start_hour + Dates.Day(day - 1))
+        if Date(year(day_date), month(day_date), 1) == month_date
+            push!(month_days, day)
         end
     end
     
-    # Calculate monthly reconciliation amounts
-    sorted_months = sort(collect(keys(monthly_data)))
-    
+    # Calculate monthly totals for each client
     for client in clients
-        monthly_reconciliation[client] = Float64[]
-    end
-    
-    for month_start in sorted_months
-        push!(monthly_dates, month_start)
+        month_allocation_total = 0.0
+        month_flat_rate_total = 0.0
         
-        for client in clients
-            # Get monthly totals
-            monthly_allocation = monthly_data[month_start][client]["allocation"]
-            monthly_flat_rate = monthly_data[month_start][client]["flat_rate"]
+        for day in month_days
+            # Add allocation income for this day
+            if haskey(dailyAllocationCosts[day], allocation_method) && haskey(dailyAllocationCosts[day][allocation_method], client)
+                month_allocation_total += dailyAllocationCosts[day][allocation_method][client]
+            end
             
-            # Reconciliation = what needs to be paid to balance: -(allocation + flat_rate)
-            # So that allocation_cost + flat_rate + reconciliation = 0
-            reconciliation_amount = -(monthly_allocation + monthly_flat_rate)
-            
-            push!(monthly_reconciliation[client], reconciliation_amount)
+            # Add flat rate payment for this day
+            month_flat_rate_total += dailyClientFlatRateIncome[day][client]
         end
+        
+        # Reconciliation = -(allocation + flat_rate) to balance to zero
+        monthly_reconciliation[client][month_idx] = -(month_allocation_total + month_flat_rate_total)
     end
-    
-    return monthly_reconciliation, monthly_dates
 end
-
-# Calculate monthly reconciliation
-monthly_reconciliation, monthly_dates = calculate_monthly_reconciliation(
-    dailyAllocationCosts, dailyClientFlatRateIncome, start_hour, total_sim_days
-)
-
-# Create the reconciliation plot
-p_reconciliation = plot(layout=(length(clients) + 1, 1), size=(1400, 500*(length(clients) + 1)))
-
-# Convert monthly dates to proper DateTime for plotting
-monthly_plot_dates = [DateTime(d) for d in monthly_dates]
-
-for (i, client) in enumerate(clients)
-    # Plot monthly reconciliation amounts
-    plot!(p_reconciliation[i], monthly_plot_dates, monthly_reconciliation[client],
-          seriestype=:bar,
-          label="Monthly Reconciliation Payment/Receipt",
-          color=ifelse.(monthly_reconciliation[client] .>= 0, :green, :red),
-          alpha=0.7,
-          title="Client $client: Monthly Reconciliation Payments\n(Positive = Receives Money, Negative = Pays Additional)",
-          xlabel="Month",
-          ylabel="Reconciliation Amount (EUR)",
-          legend=:outerbottom,
-          grid=true,
-          margins=8Plots.mm,
-          xrotation=45,
-          tickfontsize=10,
-          guidefontsize=12,
-          titlefontsize=14)
-    
-    # Add cumulative reconciliation line
-    cumulative_monthly = cumsum(monthly_reconciliation[client])
-    plot!(p_reconciliation[i], monthly_plot_dates, cumulative_monthly,
-          label="Cumulative Reconciliation",
-          linewidth=3,
-          color=:blue,
-          linestyle=:solid)
-    
-    # Add horizontal line at zero for reference
-    hline!(p_reconciliation[i], [0], color=:black, linestyle=:dot, alpha=0.5, label="")
-end
-
-# Add total reconciliation subplot
-if length(clients) > 0
-    # Calculate total monthly reconciliation across all clients
-    total_monthly_reconciliation = zeros(length(monthly_dates))
-    for i in 1:length(monthly_dates)
-        total_monthly_reconciliation[i] = sum(monthly_reconciliation[client][i] for client in clients)
-    end
-    
-    subplot_index = length(clients) + 1
-    plot!(p_reconciliation[subplot_index], monthly_plot_dates, total_monthly_reconciliation,
-          seriestype=:bar,
-          label="Total Monthly Reconciliation",
-          color=ifelse.(total_monthly_reconciliation .>= 0, :green, :red),
-          alpha=0.7,
-          title="Total: Monthly Reconciliation Payments\n(Positive = System Receives, Negative = System Pays Out)",
-          xlabel="Month",
-          ylabel="Total Reconciliation Amount (EUR)",
-          legend=:outerbottom,
-          grid=true,
-          margins=8Plots.mm,
-          xrotation=45,
-          tickfontsize=10,
-          guidefontsize=12,
-          titlefontsize=14)
-    
-    # Add cumulative total reconciliation line
-    cumulative_total_monthly = cumsum(total_monthly_reconciliation)
-    plot!(p_reconciliation[subplot_index], monthly_plot_dates, cumulative_total_monthly,
-          label="Cumulative Total Reconciliation",
-          linewidth=3,
-          color=:blue,
-          linestyle=:solid)
-    
-    # Add horizontal line at zero for reference
-    hline!(p_reconciliation[subplot_index], [0], color=:black, linestyle=:dot, alpha=0.5, label="")
-end
-
-display(p_reconciliation)
 
 # =========================
-# 6. Combined System Plot - Showing the Complete Payment Flow with Reconciliation
+# 5. Combined System Plot - Showing the Complete Payment Flow with Reconciliation
 # =========================
 println("Creating combined system plot showing complete payment flow with monthly reconciliation...")
 
@@ -519,7 +436,8 @@ for (i, client) in enumerate(clients)
           label="Cumulative Flat Rate Payments",
           linewidth=2,
           color=:green,
-          title="Client $client: Complete Payment System\n(Allocated Income + Total Payment = 0)",
+          linestyle=:dash,
+          title="Client $client: Flat rate and reconciliation",
           xlabel="Date",
           ylabel="Cumulative Amount (EUR)",
           legend=:outerbottom,
@@ -532,30 +450,29 @@ for (i, client) in enumerate(clients)
           titlefontsize=14)
     
     plot!(p_combined[i], daily_time_axis, cumulative_allocation,
-          label="Allocated Income (What Clients Should Receive)",
+          label="Allocated Income",
           linewidth=2,
-          color=:red,
-          linestyle=:dash)
+          color=:blue)
     
-    plot!(p_combined[i], daily_time_axis, total_effective_payment,
-          label="Total Payment (Should Equal -Allocated Income)",
+    plot!(p_combined[i], daily_time_axis, payment_allocation_sum,
+          label="Cumulative Net Position",
           linewidth=3,
-          color=:blue,
+          color=:red,
+          linestyle=:dash,
           alpha=0.8)
     
     # Add reconciliation adjustments as step changes
-    plot!(p_combined[i], daily_time_axis, cumulative_reconciliation,
-          label="Cumulative Reconciliation Adjustments",
-          linewidth=2,
-          color=:orange,
-          linestyle=:dot)
+    #plot!(p_combined[i], daily_time_axis, cumulative_reconciliation,
+    #      label="Cumulative Reconciliation Adjustments",
+    #      linewidth=2,
+    #      color=:orange,
+    #      linestyle=:dot)
     
     # Add the difference line
-    plot!(p_combined[i], daily_time_axis, payment_allocation_sum,
-          label="Sum (Allocated Income + Total Payment)",
+    plot!(p_combined[i], daily_time_axis, total_effective_payment,
+          label="Total Effective Payment (Flat rate + Reconciliation)",
           linewidth=2,
           color=:purple,
-          linestyle=:dashdot,
           alpha=0.7)
     
     # Add horizontal line at zero for reference
@@ -593,7 +510,8 @@ if length(clients) > 0
           label="Total Flat Rate Payments",
           linewidth=2,
           color=:green,
-          title="System Total: Payment Flow with Reconciliation\n(Allocated Income + Payment = 0)",
+          linestyle=:dash,
+          title="System Total: Payment Flow with Reconciliation",
           xlabel="Date",
           ylabel="Total Cumulative Amount (EUR)",
           legend=:outerbottom,
@@ -606,29 +524,29 @@ if length(clients) > 0
           titlefontsize=14)
     
     plot!(p_combined[subplot_index], daily_time_axis, cumulative_total_allocation,
-          label="Total Allocated Income (What System Should Receive)",
+          label="Total Allocated Income",
           linewidth=2,
-          color=:red,
-          linestyle=:dash)
-    
-    plot!(p_combined[subplot_index], daily_time_axis, total_effective_payment,
-          label="Total Payments (Should Equal -Allocated Income)",
+          color=:blue)
+
+    plot!(p_combined[subplot_index], daily_time_axis, cumulative_total_reconciliation,
+          label="Cumulative Net Position",
           linewidth=3,
-          color=:blue,
+          color=:red,
+          linestyle=:dash,
           alpha=0.8)
     
-    plot!(p_combined[subplot_index], daily_time_axis, cumulative_total_reconciliation,
-          label="Total Reconciliation Adjustments",
-          linewidth=2,
-          color=:orange,
-          linestyle=:dot)
+    #plot!(p_combined[subplot_index], daily_time_axis, cumulative_total_reconciliation,
+    #      label="Total Reconciliation Adjustments",
+    #      linewidth=2,
+    #      color=:orange,
+    #      linestyle=:dot)
     
     # Add the system-wide difference line
-    plot!(p_combined[subplot_index], daily_time_axis, system_payment_allocation_sum,
-          label="System Sum (Allocated Income + Payment, Should = 0)",
+    plot!(p_combined[subplot_index], daily_time_axis, total_effective_payment,
+          label="Total Effective Payment",
           linewidth=2,
           color=:purple,
-          linestyle=:dashdot,
+          linestyle=:solid,
           alpha=0.7)
     
     # Calculate and display the final sum (should be near zero)
