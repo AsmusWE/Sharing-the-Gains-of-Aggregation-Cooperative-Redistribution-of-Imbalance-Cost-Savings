@@ -18,6 +18,7 @@ Random.seed!(1)
 systemData, clients, demandData = load_data()
 #clients = filter(x -> !(x in ["X", "W", "N", "F", "V", "J","E", "T", "O", "Y"]), clients)
 clients = ["A","G","I","S","Q"]
+clients = ["S","I"]
 
 start_hour = DateTime(2024, 01, 01, 00, 0, 0)
 total_sim_days = 365
@@ -379,7 +380,7 @@ end
 # =========================
 println("Creating combined system plot showing complete payment flow with monthly reconciliation...")
 
-p_combined = plot(layout=(length(clients) + 1, 1), size=(1400, 600*(length(clients) + 1)))
+p_combined = plot(layout=(length(clients) + 1, 1), size=(1600, 600*(length(clients) + 1)))
 
 # Create a function to expand monthly reconciliation to daily timeline
 function expand_monthly_reconciliation_to_daily(monthly_reconciliation, monthly_dates, start_date, total_days)
@@ -444,8 +445,8 @@ for (i, client) in enumerate(clients)
           title="Client $client: Flat rate and reconciliation",
           xlabel="Date",
           ylabel="Cumulative Amount (EUR)",
-          legend=:outerbottom,
-          legend_columns=3,
+          legend=:topleft,
+          legend_columns=2,
           grid=true,
           margins=8Plots.mm,
           xrotation=45,
@@ -511,15 +512,15 @@ if length(clients) > 0
     
     subplot_index = length(clients) + 1
     plot!(p_combined[subplot_index], daily_time_axis, cumulative_total_flat_rate,
-          label="Total Flat Rate Payments",
+          label="Cumulative Flat Rate Payments",
           linewidth=2,
           color=:green,
           linestyle=:dash,
           title="System Total: Payment Flow with Reconciliation",
           xlabel="Date",
           ylabel="Total Cumulative Amount (EUR)",
-          legend=:outerbottom,
-          legend_columns=3,
+          legend=:topleft,
+          legend_columns=2,
           grid=true,
           margins=8Plots.mm,
           xrotation=45,
@@ -571,20 +572,6 @@ println("Creating third plot: Flat rate payment with monthly CVaR adjustments...
 
 # First, let's aggregate daily CVaR costs by month for each client
 # dailyCVarCosts is already stored from the daily loop above
-
-# Debug: Check if CVaR costs are being stored
-println("Debugging CVaR costs...")
-println("Number of days with CVaR data: $(length(dailyCVarCosts))")
-if length(dailyCVarCosts) > 0
-    println("Sample CVaR data for day 1: $(dailyCVarCosts[1])")
-    client_coalition = [clients[1]]
-    if haskey(dailyCVarCosts[1], client_coalition)
-        println("CVaR for client $(clients[1]) (as coalition $client_coalition) on day 1: $(dailyCVarCosts[1][client_coalition])")
-    else
-        println("Client coalition $client_coalition not found in CVaR data")
-        println("Available keys in CVaR data: $(keys(dailyCVarCosts[1]))")
-    end
-end
 
 # Calculate monthly CVaR totals for each client
 monthly_cvar_totals = Dict{String, Vector{Float64}}()

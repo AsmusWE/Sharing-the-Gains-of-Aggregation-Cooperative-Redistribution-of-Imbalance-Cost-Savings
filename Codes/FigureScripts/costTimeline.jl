@@ -27,7 +27,7 @@ num_scenarios_demand = 5
 num_scenarios_price = 50  # Reduce to require less historical data
 spread_scens_length = 1
 alphaCVaR = 0.95
-onePrice = true  # Choose imbalance system, false for two-price
+onePrice = false  # Choose imbalance system, false for two-price
 scale_equal = false # Whether to scale all clients to similar size
 # Side-effect of scaling: Pv production not scaled, makes it insignificant for small clients
 
@@ -40,8 +40,8 @@ if scale_equal
 end
 # Define different scenarios to compare
 scenarios = [
-    (beta=0.0, dummy=false, name="Income Only (β=0)", description="Optimize for imbalance income only"),
-    (beta=1.0, dummy=false, name="CVaR Only (β=1)", description="Optimize for CVaR (risk) only"), 
+    (beta=0.0, dummy=false, name="Risk Neutral Optimization", description="β=1"),
+    (beta=1.0, dummy=false, name="Risk Averse Optimization", description="β=0"), 
     (beta=0.5, dummy=true, name="Dummy Bidding", description="Simple mean-based bidding strategy")
 ]
 
@@ -337,7 +337,7 @@ for (scenario_name, results) in all_results
         title=plot_title,
         xlabel="Date",
         ylabel="Cumulative Income (EUR)",
-        legend=:topleft,
+        #legend=:topleft,
         size=(1000, 600),
         grid=true,
         margins=5Plots.mm,
@@ -356,25 +356,25 @@ for (scenario_name, results) in all_results
         # For two-price system, show both aggregated and unaggregated income
         # Plot cumulative aggregated income (grand coalition)
         plot!(p, daily_dates, cumulative_aggregated_income,
-              label="Aggregated Income (Coalition)",
+              label="Aggregated Income (Grand Coalition)",
               color=:blue,
               linewidth=3,
               alpha=0.8)
         
         # Plot cumulative unaggregated income (sum of individual income)
         plot!(p, daily_dates, cumulative_unaggregated_income,
-              label="Unaggregated Income (Individual)",
+              label="Unaggregated Income (Sum of Individuals)",
               color=:red,
               linewidth=3,
               alpha=0.8)
         
         # Plot cumulative gains from aggregation
-        plot!(p, daily_dates, cumulative_gains,
-              label="Cumulative Gains from Aggregation",
-              color=:green,
-              linewidth=3,
-              alpha=0.8,
-              linestyle=:dash)
+        #plot!(p, daily_dates, cumulative_gains,
+        #      label="Cumulative Gains from Aggregation",
+        #      color=:green,
+        #      linewidth=3,
+        #      alpha=0.8,
+        #      linestyle=:dash)
     end
     
     # Calculate and display gains from aggregation
