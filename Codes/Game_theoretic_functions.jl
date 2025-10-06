@@ -26,7 +26,8 @@ function calculate_allocations(
         "equal_share" => () -> deepcopy(equal_allocation(clients, coalitionCosts)),
         #"flat_rate" => () -> deepcopy(flat_rate_allocation(clients, coalitionCosts, demandData)),
         "flat_rate" => () -> deepcopy(flat_rate_allocation(clients, coalitionCosts, systemData)),
-        "cost_based" => () -> deepcopy(cost_based_allocation(clients, imbalancesDict, systemData, alpha))
+        "cost_based" => () -> deepcopy(cost_based_allocation(clients, imbalancesDict, systemData, alpha)),
+        "scaled" => () -> deepcopy(scaled_allocation(clients, coalitionCosts))
     )
     allocation_print_map = Dict(
         "shapley" => "Shapley calculation time:",
@@ -40,7 +41,8 @@ function calculate_allocations(
         "nucleolus" => "Nucleolus calculation time:",
         "equal_share" => "Equal share calculation time:",
         "flat_rate" => "Flat rate calculation time:",
-        "cost_based" => "Cost based allocation calculation time:"
+        "cost_based" => "Cost based allocation calculation time:",
+        "scaled" => "Scaled allocation calculation time:"
     )
     for allocation in allocations
         if haskey(allocation_map, allocation)
@@ -212,9 +214,10 @@ function check_stability(payoffs, coalition_values, clients)
     # Checks how the value of a coalition compares to their reward as part of the grand coalition
     instabilities = Dict()
     for c in coalitions 
-        instabilities[c] =sum(payoffs[i] for i in c) - coalition_values[c] 
+        instabilities[c] = coalition_values[c] - sum(payoffs[i] for i in c)
     end
     max_instability = maximum(values(instabilities))
+    
     return max_instability
 end
 
@@ -657,5 +660,25 @@ function flat_rate_allocation(clients, coalitionCosts, systemData)
     for client in clients
         allocation[client] = flat_rate * sum(systemData["price_prod_demand_df"][!, client])
     end
+    return allocation
+end
+
+function scaled_allocation(clients, coalitionCosts)
+    # This function calculates the aggregated vs unaggregated cost and multiplies individual costs by the ratio
+    allocation = Dict{String, Float64}()
+    
+    # Calculate total aggregated cost (grand coalition)
+    aggregated_cost = coalitionCosts[clients]
+    
+    # Calculate total unaggregated cost (sum of individual costs)
+    unaggregated_cost = sum(coalitionCosts[[client]] for client in clients)
+    
+    # Calculate the scaling ratio (aggregated vs unaggregated)
+    scaling_ratio = aggregated_cost / unaggregated_cost
+    # Scale each client's individual cost by the ratio
+    for client in clients
+        allocation[client] = coalitionCosts[[client]] * scaling_ratio
+    end
+    
     return allocation
 end

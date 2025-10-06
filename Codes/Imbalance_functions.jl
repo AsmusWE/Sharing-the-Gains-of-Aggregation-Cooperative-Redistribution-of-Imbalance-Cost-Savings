@@ -299,7 +299,7 @@ function calculate_imbalances_specific(systemData, coalitions, stochasticData, s
         bids = dummy_bidding(stochasticData, all_clients, coalitions, systemData)
     else
         # Use two-price optimization for bids
-        bids = calculate_bids(coalitions, systemData, stochasticData; fullOpt = true, alpha = alpha, beta = beta, onePrice = onePrice)
+        bids = calculate_bids(coalitions, systemData, stochasticData; fullOpt = false, alpha = alpha, beta = beta, onePrice = onePrice)
     end
     # Pre-calculate actual demand and PV for each client
     actual_demand_per_client = Dict()
