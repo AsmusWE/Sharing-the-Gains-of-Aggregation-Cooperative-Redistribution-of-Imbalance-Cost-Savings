@@ -337,10 +337,14 @@ function calculate_total_costs_specific(systemData, coalitions, stochasticData, 
     # cvar_weight: weight for CVaR in the total
     
     # Validate inputs
-    alpha > 0 && alpha < 1 || error("Alpha must be between 0 and 1, got $alpha")
+    alpha >= 0 && alpha < 1 || error("Alpha must be positive and below 1, got $alpha")
     cost_weight >= 0 || error("Cost weight must be non-negative, got $cost_weight")
     cvar_weight >= 0 || error("CVaR weight must be non-negative, got $cvar_weight")
     
+    if alpha == 0 && cvar_weight > 0
+        beta = 0  # If alpha is 0, CVaR will equal the mean
+    end
+
     # Get imbalances and bids for all coalitions (unified calculation)
     T = simDays * 24
     imbalance_spread = systemData["price_prod_demand_df"][1:T, "ImbalanceSpreadEUR"]
@@ -351,7 +355,7 @@ function calculate_total_costs_specific(systemData, coalitions, stochasticData, 
     
     # Calculate CVaR for each coalition
     intervals = T
-    var_index = ceil(Int, intervals * alpha) # Index for the Value at Risk (VaR) threshold
+    var_index = ceil(Int, intervals * (1-alpha)) # Index for the Value at Risk (VaR) threshold
     
     # Pre-allocate results
     costs_dict = Dict{Any, Float64}()

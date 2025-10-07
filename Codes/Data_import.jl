@@ -135,7 +135,6 @@ function load_data()
         additional_spot_data = antijoin(spotPriceFromImbalance, spotPriceFromElspot, on=:HourUTC_datetime)
         spotPriceData = vcat(spotPriceFromElspot, additional_spot_data, cols=:intersect)
         n_missing_spot = count(ismissing, spotPriceData[!, :SpotPriceEUR])
-        println("Missing SpotPriceEUR: ", n_missing_spot)
         # Join the price data on datetime first, then calculate spread
         # Use leftjoin to keep all imbalance data
         priceData = leftjoin(imbalancePriceData, spotPriceData, on=:HourUTC_datetime)
@@ -143,8 +142,6 @@ function load_data()
         # Print missing value summary for SpotPriceEUR and ImbalancePriceEUR
         n_missing_spot = count(ismissing, priceData[!, :SpotPriceEUR])
         n_missing_imbalance = count(ismissing, priceData[!, :ImbalancePriceEUR])
-        println("Missing SpotPriceEUR: ", n_missing_spot)
-        println("Missing ImbalancePriceEUR: ", n_missing_imbalance)
 
         # Handle missing values: If either spot price or imbalance price is missing, set both to 0
         missing_mask = ismissing.(priceData[!, :SpotPriceEUR]) .| ismissing.(priceData[!, :ImbalancePriceEUR])

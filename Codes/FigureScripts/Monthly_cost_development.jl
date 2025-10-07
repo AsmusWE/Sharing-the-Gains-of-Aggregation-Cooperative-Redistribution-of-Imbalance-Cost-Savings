@@ -32,7 +32,7 @@ num_scenarios_demand = 5
 num_scenarios_price = 50
 spread_scens_length = 1
 alphaCVaR = 0.95
-beta = 0.5
+beta = 0
 
 # Allocation method selection: "gately" or "full_cost"
 allocation_method = "gately"  # Change this to "gately" to switch allocation methods
