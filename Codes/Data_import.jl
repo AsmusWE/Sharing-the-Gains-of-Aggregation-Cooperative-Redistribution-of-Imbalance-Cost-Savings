@@ -1,7 +1,7 @@
 using CSV
 using DataFrames
 using TimeZones
-using Dates
+using Dates, Statistics
 
 """
     load_data() -> Dict, Vector{String}
@@ -24,6 +24,10 @@ function load_data()
     # --- Load and rescale PV production ---
     pvProduction = CSV.read("Data/ProductionMunicipalityHour.csv", DataFrame; decimal=',')
     pvProduction[!, :HourUTC_datetime] = DateTime.(pvProduction[:, :HourUTC], DateFormat("yyyy-mm-dd HH:MM:SS"))
+    # Drop all rows after January 2025 (keep up to 2025-01-31 23:59:59)
+    # Done because new solar plants come online in 2025 changing the production profile
+    cutoff = DateTime(2025, 2, 1)
+    filter!(row -> row.HourUTC_datetime < cutoff, pvProduction)
     plant_size = 14.0 # MW
     old_plant_size = maximum(pvProduction[:, :SolarMWh])
     rename!(pvProduction, :SolarMWh => :SolarMWh_unscaled)

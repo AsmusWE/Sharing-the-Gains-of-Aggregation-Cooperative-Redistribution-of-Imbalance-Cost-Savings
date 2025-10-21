@@ -36,20 +36,20 @@ println("Data sorted successfully.")
 #clients = ["A","G"]
 
 start_hour = DateTime(2024, 1, 01, 00, 0, 0)
-simulation_months = 12 # Number of months to simulate
-month_length = 30 # Days in a month
+simulation_months = 52 # Number of months to simulate
+month_length = 7 # Days in a month
 total_sim_days = simulation_months * month_length # Calculate total simulation days
 println("Simulation period: ", start_hour, " to ", start_hour + Dates.Day(total_sim_days))
 println("Number of simulation months: ", simulation_months)
 println("Total simulation days: ", total_sim_days)
 num_scenarios_demand = 5 # Number of scenarios for demand
-num_scenarios_price = 50 # Number of scenarios for imbalance spread
+num_scenarios_price = 100 # Number of scenarios for imbalance spread
 spread_scens_length = 1 # Sets the length of the imbalance spread scenarios, will repeat after this if necessary
 alphaCVaR = 0.95 # CVaR confidence level
 beta = 1 # Weighting factor between cost and CVaR in total cost calculation
 dailyPlot = false # Whether to run the daily calculations
-dummy = false # Whether to use dummy bids (true) or optimal bids (false)
-onePrice = true # Whether to use one-price (true) or two-price (false)
+dummy = true # Whether to use dummy bids (true) or optimal bids (false)
+onePrice = false # Whether to use one-price (true) or two-price (false)
 
 
 
@@ -70,7 +70,15 @@ stochasticData["dominantDirection01"] = generate_dominant_direction(stochasticDa
 # =========================
 # 2. Monthly Imbalance Calculation and Income Distribution Aggregation
 # =========================
-coalitions = [clients]
+# Create coalitions including individual clients and the grand coalition
+coalitions = []
+# Add individual coalitions (size 1)
+for client in clients
+    push!(coalitions, [client])
+end
+# Add grand coalition (size N)
+push!(coalitions, clients)
+
 println("Calculating income distribution using monthly chunks to save RAM...")
 
 # Initialize arrays to store aggregated results

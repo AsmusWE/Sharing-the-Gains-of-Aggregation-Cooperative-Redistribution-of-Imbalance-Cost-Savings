@@ -18,6 +18,7 @@ Random.seed!(1) # Set seed for reproducibility
 # Should be flat_rate and one other
 allocations = ["gately", "flat_rate"]
 individualAllocation = "gately" # Choose which individualised allocation to compare to flat rate
+socialisedAllocation = "flat_rate" # Choose which socialised allocation to compare to individualised
 
 systemData, clients, demandData = load_data()
 # Filter out smallest clients for full plot all coalitions, down from 22 to 19
@@ -34,13 +35,14 @@ println("Number of simulation days: ", sim_days)
 num_scenarios_demand = 5 # Number of scenarios for demand
 num_scenarios_price = 50 # Number of scenarios for imbalance spread
 spread_scens_length = 1 # Sets the length of the imbalance spread scenarios, will repeat after this if necessary
-beta = 0 # Weighting factor between cost and CVaR in total cost calculation
+beta = 1 # Weighting factor between cost and CVaR in total cost calculation, if not using CVaR for cost allocation
 dummy = true # Whether to do dummy bidding, overwrites optimization to bid expected net consumption
 onePrice = false # Whether to use a one price or two price settlement for imbalance costs
+checkExcess = true # Whether to check excess for the allocations, requires computing all combinations
 
 # Individualization parameters
-individualizationSteps = 0:0.1:1 # Ratio between socialised (flat rate) and individualised (uniform price) costs, 0 means all socialised, 1 means all individualised
-# TODO: Implement individualizedCVaR = true option
+individualizationSteps = 0:0.05:1 # Ratio between socialised (flat rate) and individualised (uniform price) costs, 0 means all socialised, 1 means all individualised
+
 individualizedCVaR = false # If true, the individualized part will be based on CVaR, otherwise on percentage of total costs
 alphaCVaR = 0.95
 #if individualizationRatio == 0
@@ -64,6 +66,9 @@ end
 stochasticData["imbalance_spread"], stochasticData["spot_price"] = generate_scenarios_imbalance_spread(systemData, start_hour, spread_scens_length; num_scenarios=num_scenarios_price)
 stochasticData["dominantDirection01"] = generate_dominant_direction(stochasticData["imbalance_spread"])
 
+# Keep original demandData for scenario generation (needs historical data)
+originalDemandData = deepcopy(demandData)
+
 # Cut systemData and demandData to the simulation period
 systemData = set_period!(systemData, start_hour, sim_days)
 demandData = set_period!(demandData, start_hour, sim_days)
@@ -71,33 +76,187 @@ demandData = set_period!(demandData, start_hour, sim_days)
 # =========================
 # 2. Imbalance Calculation and allocation
 # =========================
-coalitions = collect(combinations(clients))
-println("Calculating total costs (regular costs + CVaR)")
-totalCostsDict, costsDict, cvarDict, imbalancesDict = @time calculate_total_costs_specific(
-    systemData, coalitions, stochasticData, sim_days; alpha=alphaCVaR, beta = beta, dummy = dummy, onePrice = onePrice
-)
+if checkExcess
+    coalitions = collect(combinations(clients))
+else
+    coalitions = sparse_coalitions(clients)
+end
 
-allocation_costs = calculate_allocations(
-    allocations, clients, costsDict, imbalancesDict, systemData; printing = true, alpha=alphaCVaR
-)
 
-println("Total costs (regular + CVaR): ", totalCostsDict[clients])
-println("Regular costs only: ", costsDict[clients])
-println("CVaR only: ", cvarDict[clients])
 
 # =========================
 # 3. Excess calculation
 # =========================
 
 # Build a DataFrame: rows = individualization steps, columns = clients
+# Store maximum excess for each step
+maxExcessByStep = Float64[]
+
 if individualizedCVaR
-    error("individualizedCVaR = true not implemented in this script for mixed allocation. Set individualizedCVaR = false or implement CVaR-based per-client allocation.")
-else
+    # Initialize DataFrame with step column and client columns
     mixedAllocationDF = DataFrame(step = collect(individualizationSteps))
     for client in clients
-        flat = allocation_costs["flat_rate"][client]
+        mixedAllocationDF[!, client] = zeros(length(individualizationSteps))
+    end
+    
+    for (step_idx, step) in enumerate(individualizationSteps)
+        println("Individualization step: ", step, ", CVaR level: ", 1 - step)
+        alphaCVaR = 1 - step
+        beta = 1
+        if step == 0
+            alphaCVaR = 0.95 # If all socialised, CVaR is not optimized
+            beta = 0
+        end
+        
+        # Initialize accumulation dictionaries for weekly costs
+        accumulated_costsDict = Dict(coalition => 0.0 for coalition in coalitions)
+        accumulated_cvarDict = Dict(coalition => 0.0 for coalition in coalitions)
+        accumulated_imbalancesDict = Dict(coalition => Float64[] for coalition in coalitions)
+        
+        # Optimize week by week (7 days at a time)
+        week_length = 7
+        num_weeks = Int(ceil(sim_days / week_length))
+        
+        for week in 1:num_weeks
+            # Calculate the start day and length for this week
+            week_start_day = (week - 1) * week_length + 1
+            days_in_week = min(week_length, sim_days - week_start_day + 1)
+            
+            println("  Processing week $week of $num_weeks (days $week_start_day to $(week_start_day + days_in_week - 1))")
+            
+            # Create weekly system data
+            current_week_start = start_hour + Dates.Day(week_start_day - 1)
+            weekly_systemData = set_period!(deepcopy(systemData), current_week_start, days_in_week)
+            
+            # Generate demand scenarios for this specific week
+            stochasticData["demand_scenarios"] = generate_scenarios_demand_rolling(clients, originalDemandData, current_week_start, days_in_week; num_scenarios=num_scenarios_demand)
+            
+            # Calculate costs for this week
+            weeklyTotalCostsDict, weeklyCostsDict, weeklyCvarDict, weeklyImbalancesDict = calculate_total_costs_specific(
+                weekly_systemData, coalitions, stochasticData, days_in_week; alpha=alphaCVaR, beta = beta, dummy = dummy, onePrice = onePrice
+            )
+            
+            # Accumulate weekly results
+            for coalition in coalitions
+                accumulated_costsDict[coalition] += weeklyCostsDict[coalition]
+                accumulated_cvarDict[coalition] += weeklyCvarDict[coalition]
+                append!(accumulated_imbalancesDict[coalition], weeklyImbalancesDict[coalition])
+            end
+        end
+        
+        println("Accumulated costs (regular): ", accumulated_costsDict[clients])
+
+        costAllocations = calculate_allocations(
+            allocations, clients, accumulated_costsDict, accumulated_imbalancesDict, systemData; printing = false, alpha=alphaCVaR
+        )
+        cvarAllocations = calculate_allocations(
+            allocations, clients, accumulated_cvarDict, accumulated_imbalancesDict, systemData; printing = false, alpha=alphaCVaR
+        )
+
+
+        totalCost = sum(costAllocations[socialisedAllocation][client] for client in clients)
+        totalCVaR = sum(cvarAllocations[socialisedAllocation][client] for client in clients)
+        cvarContribution = totalCVaR * step
+        unassignedCost = totalCost - cvarContribution
+        flatRateWeight = unassignedCost / totalCost
+        for client in clients
+            #TODO: Scale costs so it is always budget balanced
+            flat = costAllocations[socialisedAllocation][client]
+            indiv = cvarAllocations[individualAllocation][client]
+            
+            # Since CVaR payments and flat rate are not necessarily budget balanced, scale the flat rate contribution so they are
+            mixedAllocationDF[step_idx, client] = flatRateWeight * flat + step * indiv
+        end
+        paymentSum = sum(mixedAllocationDF[step_idx, client] for client in clients)
+        println("Sum of payments: ", paymentSum, ", Total cost (regular): ", totalCost, ", Total CVaR: ", totalCVaR, ", CVaR contribution: ", cvarContribution, ", Flat rate weight: ", flatRateWeight)
+
+        if checkExcess
+            stepAllocation = Dict(client => mixedAllocationDF[step_idx, client] for client in clients)
+            maxExcessStep = check_stability(stepAllocation, accumulated_costsDict, clients)
+            push!(maxExcessByStep, maxExcessStep)
+            println("Max excess for mixed allocation (step = ", step, "): ", maxExcessStep)
+        end
+    end
+else
+    println("Calculating total costs (regular costs + CVaR)")
+    
+    # Initialize accumulation dictionaries for weekly costs
+    accumulated_costsDict = Dict(coalition => 0.0 for coalition in coalitions)
+    accumulated_cvarDict = Dict(coalition => 0.0 for coalition in coalitions)
+    accumulated_totalCostsDict = Dict(coalition => 0.0 for coalition in coalitions)
+    accumulated_imbalancesDict = Dict(coalition => Float64[] for coalition in coalitions)
+    
+    # Optimize week by week (7 days at a time)
+    week_length = 7
+    num_weeks = Int(ceil(sim_days / week_length))
+    
+    for week in 1:num_weeks
+        # Calculate the start day and length for this week
+        week_start_day = (week - 1) * week_length + 1
+        days_in_week = min(week_length, sim_days - week_start_day + 1)
+        
+        println("Processing week $week of $num_weeks (days $week_start_day to $(week_start_day + days_in_week - 1))")
+        
+        # Create weekly system data
+        current_week_start = start_hour + Dates.Day(week_start_day - 1)
+        weekly_systemData = set_period!(deepcopy(systemData), current_week_start, days_in_week)
+        
+        # Generate demand scenarios for this specific week
+        stochasticData["demand_scenarios"] = generate_scenarios_demand_rolling(clients, originalDemandData, current_week_start, days_in_week; num_scenarios=num_scenarios_demand)
+        
+        # Calculate costs for this week
+        weeklyTotalCostsDict, weeklyCostsDict, weeklyCvarDict, weeklyImbalancesDict = @time calculate_total_costs_specific(
+            weekly_systemData, coalitions, stochasticData, days_in_week; alpha=alphaCVaR, beta = beta, dummy = dummy, onePrice = onePrice
+        )
+        
+        # Accumulate weekly results
+        for coalition in coalitions
+            accumulated_totalCostsDict[coalition] += weeklyTotalCostsDict[coalition]
+            accumulated_costsDict[coalition] += weeklyCostsDict[coalition]
+            accumulated_cvarDict[coalition] += weeklyCvarDict[coalition]
+            append!(accumulated_imbalancesDict[coalition], weeklyImbalancesDict[coalition])
+        end
+    end
+
+    allocation_costs = calculate_allocations(
+        allocations, clients, accumulated_costsDict, accumulated_imbalancesDict, systemData; printing = true, alpha=alphaCVaR
+    )
+
+    println("Total costs (regular + CVaR): ", accumulated_totalCostsDict[clients])
+    println("Regular costs only: ", accumulated_costsDict[clients])
+    println("CVaR only: ", accumulated_cvarDict[clients])
+    mixedAllocationDF = DataFrame(step = collect(individualizationSteps))
+    for client in clients
+        flat = allocation_costs[socialisedAllocation][client]
         indiv = allocation_costs[individualAllocation][client]
         mixedAllocationDF[!, client] = (1 .- mixedAllocationDF.step) .* flat .+ mixedAllocationDF.step .* indiv
+    end
+    
+    # Checking stability of the mixed allocations
+    if checkExcess
+        for row in eachrow(mixedAllocationDF)
+            stepAllocation = Dict(client => row[client] for client in clients)
+            maxExcessStep = check_stability(stepAllocation, accumulated_costsDict, clients)
+            push!(maxExcessByStep, maxExcessStep)
+            println("Max excess for mixed allocation (step = ", row[:step], "): ", maxExcessStep)
+        end
+    end
+end
+
+# =========================
+# 3.b. Find step where max excess becomes negative
+# =========================
+negativeExcessStep = nothing
+if checkExcess && !isempty(maxExcessByStep)
+    for (i, excess) in enumerate(maxExcessByStep)
+        if excess < 0
+            negativeExcessStep = individualizationSteps[i]
+            println("First individualization step where max excess is negative: ", negativeExcessStep)
+            break
+        end
+    end
+    if isnothing(negativeExcessStep)
+        println("Max excess never becomes negative in the analyzed range")
     end
 end
 
@@ -117,39 +276,48 @@ for client in clients
     end
 end
 
-for row in eachrow(mixedAllocationDF)
-    stepAllocation = Dict(client => row[client] for client in clients)
-    maxExcessStep = check_stability(stepAllocation, costsDict, clients)
-    println("Max excess for mixed allocation (step = ", row[:step], "): ", maxExcessStep)
-end
 
 # =========================
 # 4. Scatter Plot: Cost per MWh vs Individualization Step
 # =========================
 p = plot(
-    title = "Allocated Cost per MWh vs Individualization Step",
-    xlabel = "Individualization step (0 = all socialised, 1 = all individualised)",
-    ylabel = "Cost per MWh (EUR/MWh)",
+    #title = "Client Cost per MWh vs Individualisation Grade",
+    xlabel = "Individualisation Grade",
+    ylabel = "Imbalance Cost per MWh (EUR/MWh)",
     background_color = :white,
     foreground_color_subplot = :black,
-    size = (1100, 650)
+    size = (850, 650),
+    guidefontsize=16,
+    legendfontsize=14
 )
 palette_colors = palette(:tab10, length(clients))
 for (i, client) in enumerate(clients)
-    scatter!(p,
-        mixedAllocationCostPerMWhDF.step,
-        mixedAllocationCostPerMWhDF[!, client],
-        label = client,
-        markersize = 5,
-        markerstrokewidth = 0.5,
-        color = palette_colors[i]
-    )
+    #scatter!(p,
+    #    mixedAllocationCostPerMWhDF.step,
+    #    mixedAllocationCostPerMWhDF[!, client],
+    #    label = "client $client",
+    #    markersize = 5,
+    #    markerstrokewidth = 0.5,
+    #    color = palette_colors[i]
+    #)
     plot!(p,
         mixedAllocationCostPerMWhDF.step,
         mixedAllocationCostPerMWhDF[!, client],
-        label = "",
+        label = (i == 1 ? "Individual Client Cost" : ""),
         color = palette_colors[i],
-        lw = 1
+        lw = 1,
+        xformatter=_->"",
+        #yformatter=_->"",
     )
 end
+
+# Add vertical line where max excess becomes negative
+if !isnothing(negativeExcessStep)
+    vline!(p, [negativeExcessStep], 
+           color = :red, 
+           linestyle = :dash, 
+           linewidth = 2,
+           label = "Line of Stability")
+end
+
 display(p)

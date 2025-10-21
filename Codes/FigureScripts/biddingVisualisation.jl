@@ -17,18 +17,18 @@ Random.seed!(1) # Set seed for reproducibility
 systemData, clients, demandData = load_data()
 
 # Simulation parameters
-start_hour = DateTime(2024, 6, 15, 00, 0, 0)
-sim_days = 14 # Short simulation for visualization
+start_hour = DateTime(2024, 6, 18, 00, 0, 0)
+sim_days = 2 # Short simulation for visualization
 num_scenarios_demand = 5 # Number of scenarios for demand
-num_scenarios_price = 100 # Number of scenarios for imbalance spread
+num_scenarios_price = 10 # Number of scenarios for imbalance spread
 spread_scens_length = 1 # Sets the length of the imbalance spread scenarios
 alphaCVaR = 0.95 # CVaR confidence level
 onePrice = false # Whether to use one-price (true) or two-price (false)
 
 # Setup stochastic data
 stochasticData = Dict(
-    "pv_forecast" => "perfect",
-    "demand_forecast" => "scenarios",
+    "pv_forecast" => "scenarios",
+    "demand_forecast" => "perfect",
     "demand_noise_std" => 0.28,
 )
 

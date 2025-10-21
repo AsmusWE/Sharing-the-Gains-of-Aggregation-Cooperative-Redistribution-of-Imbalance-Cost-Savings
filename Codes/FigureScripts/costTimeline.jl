@@ -24,7 +24,7 @@ systemData, clients, demandData = load_data()
 start_hour = DateTime(2024, 01, 01, 00, 0, 0)
 sim_days = 365  # One year for long timeframe (with 1-hour intervals: 8760 rows / 24 intervals per day = 365 days)
 num_scenarios_demand = 5
-num_scenarios_price = 50  # Reduce to require less historical data
+num_scenarios_price = 100  # Reduce to require less historical data
 spread_scens_length = 1
 alphaCVaR = 0.95
 onePrice = false  # Choose imbalance system, false for two-price
@@ -40,9 +40,10 @@ if scale_equal
 end
 # Define different scenarios to compare
 scenarios = [
-    (beta=0.0, dummy=false, name="Risk Neutral Optimization", description="β=1"),
-    (beta=1.0, dummy=false, name="Risk Averse Optimization", description="β=0"), 
-    (beta=0.5, dummy=true, name="Dummy Bidding", description="Simple mean-based bidding strategy")
+    (beta=0.0, dummy=false, useNewsvendor=false, name="Risk Neutral Optimization", description="β=0"),
+    (beta=1.0, dummy=false, useNewsvendor=false, name="Risk Averse Optimization", description="β=1"), 
+    (beta=0.5, dummy=true, useNewsvendor=false, name="Dummy Bidding", description="Simple mean-based bidding strategy"),
+    (beta=0.0, dummy=false, useNewsvendor=true, name="Newsvendor Bidding", description="Newsvendor-based quantile bidding")
 ]
 
 # =========================
@@ -107,7 +108,7 @@ for (i, scenario) in enumerate(scenarios)
     println("\n" * "="^60)
     println("SCENARIO $i: $(scenario.name)")
     println("$(scenario.description)")
-    println("Beta: $(scenario.beta), Dummy: $(scenario.dummy)")
+    println("Beta: $(scenario.beta), Dummy: $(scenario.dummy), UseNewsvendor: $(scenario.useNewsvendor)")
     println("="^60)
     
     # Initialize storage for this scenario
@@ -115,6 +116,7 @@ for (i, scenario) in enumerate(scenarios)
     daily_unaggregated_income = Float64[]
     daily_aggregated_imbalances = Float64[]
     daily_unaggregated_imbalances = Float64[]
+    daily_consumption = Float64[]
     daily_dates = Date[]
     
     # Calculate income for each day
@@ -134,7 +136,7 @@ for (i, scenario) in enumerate(scenarios)
         # Calculate income for this day
         totalCostsDict, dailyCosts, cvarDict, imbalancesDict = calculate_total_costs_specific(
             daily_systemData, coalitions, stochasticData, 1; 
-            alpha=alphaCVaR, beta=scenario.beta, dummy=scenario.dummy, onePrice=onePrice
+            alpha=alphaCVaR, beta=scenario.beta, dummy=scenario.dummy, onePrice=onePrice, useNewsvendor=scenario.useNewsvendor
         )
         
         # Use only regular imbalance income (dailyCosts represents income when negative)
@@ -146,11 +148,15 @@ for (i, scenario) in enumerate(scenarios)
         aggregated_imbalance_volume = sum(abs.(imbalancesDict[clients]))
         unaggregated_imbalance_volume = sum(sum(abs.(imbalancesDict[[client]])) for client in clients)
         
+        # Calculate total consumption for this day (sum of all clients' consumption)
+        daily_consumption_volume = sum(sum(daily_systemData["price_prod_demand_df"][!, client]) for client in clients)
+        
         # Store results
         push!(daily_aggregated_income, aggregated_income)
         push!(daily_unaggregated_income, unaggregated_income)
         push!(daily_aggregated_imbalances, aggregated_imbalance_volume)
         push!(daily_unaggregated_imbalances, unaggregated_imbalance_volume)
+        push!(daily_consumption, daily_consumption_volume)
         push!(daily_dates, Date(current_day))
     end
     
@@ -160,9 +166,11 @@ for (i, scenario) in enumerate(scenarios)
         "unaggregated" => daily_unaggregated_income,
         "aggregated_imbalances" => daily_aggregated_imbalances,
         "unaggregated_imbalances" => daily_unaggregated_imbalances,
+        "consumption" => daily_consumption,
         "dates" => daily_dates,
         "beta" => scenario.beta,
         "dummy" => scenario.dummy,
+        "useNewsvendor" => scenario.useNewsvendor,
         "description" => scenario.description
     )
 end
@@ -249,7 +257,12 @@ p_income = plot(
     grid=true,
     margins=5Plots.mm,
     linewidth=3,
-    titlefontsize=12
+    titlefontsize=12,
+    #xformatter=_->"",
+    #yformatter=_->"",
+    guidefontsize=16,
+    legendfontsize=14,
+    #xticks=false
 )
 
 # Plot selected client income timeline
@@ -266,19 +279,14 @@ plot!(p_income, daily_dates_income, cumulative_grand_coalition_income,
       linewidth=4,
       alpha=0.8)
 
-# Calculate and display income statistics
+    # Calculate and display income statistics
 total_selected_client_income = sum(daily_selected_client_income)
 total_grand_coalition_income = sum(daily_grand_coalition_income)
 avg_daily_selected_client_income = total_selected_client_income / sim_days
 avg_daily_grand_coalition_income = total_grand_coalition_income / sim_days
 
-# Format x-axis for better date display
-plot!(p_income, xrotation=45)
-
 # Display the income timeline plot
-display(p_income)
-
-# Print summary statistics
+display(p_income)# Print summary statistics
 println("\n" * "="^60)
 println("CLIENT $(selected_client) vs GRAND COALITION INCOME SUMMARY")
 println("="^60)
@@ -336,20 +344,25 @@ for (scenario_name, results) in all_results
     p = plot(
         title=plot_title,
         xlabel="Date",
-        ylabel="Cumulative Income (EUR)",
+        ylabel="Cumulative Income",
         #legend=:topleft,
         size=(1000, 600),
         grid=true,
         margins=5Plots.mm,
         linewidth=2,
-        titlefontsize=10
+        titlefontsize=10,
+        #xformatter=_->"",
+        #yformatter=_->"",
+        guidefontsize=16,
+        legendfontsize=14,
+        #xticks=false
     )
     
     if onePrice
         # For one-price system, only show aggregated income
         plot!(p, daily_dates, cumulative_aggregated_income,
               label="Aggregated Income (Coalition)",
-              color=:blue,
+              color=:violet,
               linewidth=3,
               alpha=0.8)
     else
@@ -357,14 +370,14 @@ for (scenario_name, results) in all_results
         # Plot cumulative aggregated income (grand coalition)
         plot!(p, daily_dates, cumulative_aggregated_income,
               label="Aggregated Income (Grand Coalition)",
-              color=:blue,
+              color=:violet,
               linewidth=3,
               alpha=0.8)
         
         # Plot cumulative unaggregated income (sum of individual income)
         plot!(p, daily_dates, cumulative_unaggregated_income,
               label="Unaggregated Income (Sum of Individuals)",
-              color=:red,
+              color=:blue,
               linewidth=3,
               alpha=0.8)
         
@@ -383,9 +396,6 @@ for (scenario_name, results) in all_results
     gains_percentage = (total_gains / sum(daily_unaggregated_income)) * 100
     final_cumulative_gains = cumulative_gains[end]
     
-    
-    # Format x-axis for better date display
-    plot!(p, xrotation=45)
     
     # Display plot in separate figure window
     display(p)
@@ -408,11 +418,16 @@ if !onePrice
         size=(1200, 600),
         grid=true,
         margins=5Plots.mm,
-        linewidth=3
+        linewidth=3,
+        #xformatter=_->"",
+        #yformatter=_->"",
+        guidefontsize=16,
+        legendfontsize=14,
+        #xticks=false
     )
 
-    colors = [:blue, :red, :purple]
-    markers = [:circle, :square, :diamond]
+    colors = [:blue, :red, :purple, :green]
+    markers = [:circle, :square, :diamond, :star5]
 
     for (i, (scenario_name, results)) in enumerate(all_results)
         daily_aggregated_income = results["aggregated"]
@@ -426,8 +441,6 @@ if !onePrice
               markersize=2,
               alpha=0.8)
     end
-
-    plot!(p_comparison, xrotation=45)
 
     display(p_comparison)
 else
@@ -463,6 +476,21 @@ for (scenario_name, results) in all_results
     results["avg_daily_volume_reduction"] = avg_daily_volume_reduction
     results["volume_reduction_percentage"] = volume_reduction_percentage
     results["final_cumulative_volume_reduction"] = final_cumulative_volume_reduction
+    
+    # Calculate imbalance cost per MWh of consumption for the portfolio
+    total_consumption = sum(results["consumption"])
+    total_aggregated_income = sum(results["aggregated"])
+    total_unaggregated_income = sum(results["unaggregated"])
+    
+    # Income is negative when earning, positive when paying
+    # Cost per MWh consumption is therefore the negative of income per MWh consumption
+    aggregated_cost_per_mwh_consumption = -total_aggregated_income / total_consumption
+    unaggregated_cost_per_mwh_consumption = -total_unaggregated_income / total_consumption
+    
+    # Store cost per MWh consumption statistics
+    results["aggregated_cost_per_mwh_consumption"] = aggregated_cost_per_mwh_consumption
+    results["unaggregated_cost_per_mwh_consumption"] = unaggregated_cost_per_mwh_consumption
+    results["total_consumption"] = total_consumption
 end
 
 # Create a combined comparison plot showing percentage volume reduction from all scenarios
@@ -475,11 +503,16 @@ p_volume_comparison = plot(
     size=(1200, 600),
     grid=true,
     margins=5Plots.mm,
-    linewidth=3
+    linewidth=3,
+    #xformatter=_->"",
+    #yformatter=_->"",
+    guidefontsize=16,
+    legendfontsize=14,
+    #xticks=false
 )
 
-colors = [:blue, :red, :purple]
-markers = [:circle, :square, :diamond]
+colors = [:blue, :red, :purple, :green]
+markers = [:circle, :square, :diamond, :star5]
 
 for (i, (scenario_name, results)) in enumerate(all_results)
     daily_aggregated_imbalances = results["aggregated_imbalances"]
@@ -498,8 +531,6 @@ for (i, (scenario_name, results)) in enumerate(all_results)
           markersize=2,
           alpha=0.8)
 end
-
-plot!(p_volume_comparison, xrotation=45)
 
 display(p_volume_comparison)
 
@@ -544,6 +575,22 @@ for (scenario_name, results) in all_results
 end
 println("-"^80)
 
+# Print comparison table for imbalance cost per MWh of consumption
+println("\nIMBALANCE COST PER MWh OF CONSUMPTION:")
+println("-"^90)
+@printf("%-20s %20s %20s %20s\n", "Scenario", "Aggregated (€/MWh)", "Unaggregated (€/MWh)", "Difference (€/MWh)")
+println("-"^90)
+
+for (scenario_name, results) in all_results
+    cost_difference = results["unaggregated_cost_per_mwh_consumption"] - results["aggregated_cost_per_mwh_consumption"]
+    @printf("%-20s %20s %20s %20s\n", 
+           scenario_name,
+           "€$(round(results["aggregated_cost_per_mwh_consumption"], digits=2))",
+           "€$(round(results["unaggregated_cost_per_mwh_consumption"], digits=2))",
+           "€$(round(cost_difference, digits=2))")
+end
+println("-"^90)
+
 # Detailed summary for each scenario
 for (scenario_name, results) in all_results
     println("\n$scenario_name: $(results["description"])")
@@ -553,4 +600,9 @@ for (scenario_name, results) in all_results
     println("  IMBALANCE VOLUME REDUCTION:")
     println("    Total volume reduction: $(round(results["total_volume_reduction"], digits=1)) MWh")
     println("    Volume reduction percentage: $(round(results["volume_reduction_percentage"], digits=1))%")
+    println("  IMBALANCE COST PER MWh OF CONSUMPTION:")
+    println("    Aggregated portfolio: €$(round(results["aggregated_cost_per_mwh_consumption"], digits=2))/MWh")
+    println("    Unaggregated portfolio: €$(round(results["unaggregated_cost_per_mwh_consumption"], digits=2))/MWh")
+    println("    Cost reduction per MWh: €$(round(results["unaggregated_cost_per_mwh_consumption"] - results["aggregated_cost_per_mwh_consumption"], digits=2))/MWh")
+    println("    Total consumption: $(round(results["total_consumption"], digits=1)) MWh")
 end

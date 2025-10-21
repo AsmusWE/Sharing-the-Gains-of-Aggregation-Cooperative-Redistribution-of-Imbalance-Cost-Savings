@@ -32,7 +32,7 @@ lastHour = maximum(systemData["price_prod_demand_df"][!, :HourUTC_datetime])
 #clients = ["A","G"]
 
 start_hour = DateTime(2024, 01, 01, 00, 0, 0)
-sim_days = 360
+sim_days = 366
 println("Simulation period: ", start_hour, " to ", start_hour + Dates.Day(sim_days))
 println("Number of simulation days: ", sim_days)
 println("Number of clients: ", length(clients))
@@ -42,7 +42,7 @@ num_scenarios_demand = 5
 num_scenarios_price = 50
 spread_scens_length = 1
 alphaCVaR = 0.95  # CVaR confidence level
-onePrice = true  # One-price (true) or two-price (false)
+onePrice = false  # One-price (true) or two-price (false)
 beta_values = vcat([0.001], collect(0.1:0.1:1))  # Add 0.001 as the first value
 # Setup stochastic data
 stochasticData = Dict(
@@ -58,8 +58,12 @@ end
 stochasticData["imbalance_spread"], stochasticData["spot_price"] = generate_scenarios_imbalance_spread(systemData, start_hour, spread_scens_length; num_scenarios=num_scenarios_price)
 stochasticData["dominantDirection01"] = generate_dominant_direction(stochasticData["imbalance_spread"])
 
+# Keep original demandData for scenario generation (needs historical data)
+originalDemandData = deepcopy(demandData)
+
 # Cut systemData and demandData to the simulation period
 systemData = set_period!(systemData, start_hour, sim_days)
+demandData = set_period!(demandData, start_hour, sim_days)
 
 # =========================
 # 2. CVaR Analysis for Different Beta Values
@@ -97,25 +101,60 @@ println("Beta values: ", collect(beta_values))
 for (beta_idx, beta) in enumerate(beta_values)
     println("\nProcessing beta = $beta ($(beta_idx)/$(length(beta_values)))")
     
-    # Calculate total income, regular income, and CVaR for current beta
-    totalIncomeDict, incomeDict, cvarDict, imbalancesDict = calculate_total_costs_specific(
-        systemData, coalitions_to_analyze, stochasticData, sim_days; alpha=alphaCVaR, beta = beta, onePrice = onePrice
-    )
+    # Initialize accumulation dictionaries for weekly costs
+    accumulated_totalIncomeDict = Dict(coalition => 0.0 for coalition in coalitions_to_analyze)
+    accumulated_incomeDict = Dict(coalition => 0.0 for coalition in coalitions_to_analyze)
+    accumulated_cvarDict = Dict(coalition => 0.0 for coalition in coalitions_to_analyze)
+    accumulated_imbalancesDict = Dict(coalition => Float64[] for coalition in coalitions_to_analyze)
     
-    # Store results for each coalition
+    # Optimize week by week (7 days at a time)
+    week_length = 7
+    num_weeks = Int(ceil(sim_days / week_length))
+    
+    for week in 1:num_weeks
+        # Calculate the start day and length for this week
+        week_start_day = (week - 1) * week_length + 1
+        days_in_week = min(week_length, sim_days - week_start_day + 1)
+        
+        println("  Processing week $week of $num_weeks (days $week_start_day to $(week_start_day + days_in_week - 1))")
+        
+        # Create weekly system data
+        current_week_start = start_hour + Dates.Day(week_start_day - 1)
+        weekly_systemData = set_period!(deepcopy(systemData), current_week_start, days_in_week)
+        
+        # Generate demand scenarios for this specific week
+        stochasticData["demand_scenarios"] = generate_scenarios_demand_rolling(clients, originalDemandData, current_week_start, days_in_week; num_scenarios=num_scenarios_demand)
+        
+        # Calculate costs for this week
+        weeklyTotalIncomeDict, weeklyIncomeDict, weeklyCvarDict, weeklyImbalancesDict = calculate_total_costs_specific(
+            weekly_systemData, coalitions_to_analyze, stochasticData, days_in_week; alpha=alphaCVaR, beta = beta, onePrice = onePrice
+        )
+        
+        # Accumulate weekly results
+        for coalition in coalitions_to_analyze
+            accumulated_totalIncomeDict[coalition] += weeklyTotalIncomeDict[coalition]
+            accumulated_incomeDict[coalition] += weeklyIncomeDict[coalition]
+            accumulated_cvarDict[coalition] += weeklyCvarDict[coalition]
+            append!(accumulated_imbalancesDict[coalition], weeklyImbalancesDict[coalition])
+        end
+    end
+    
+    # Store accumulated results for each coalition
     for (i, coalition) in enumerate(coalitions_to_analyze)
         coalition_name = results["coalition_names"][i]
         
-        # Calculate weighted total income using current beta
-        regular_income = incomeDict[coalition]
-        cvar_income = cvarDict[coalition]
+        # Use accumulated income and CVaR
+        regular_income = accumulated_incomeDict[coalition]
+        cvar_income = accumulated_cvarDict[coalition]
         
         push!(results["regular_income"][coalition_name], regular_income)
         push!(results["cvar_income"][coalition_name], cvar_income)
     end
 
-    # Also calculate expected income and CVaR
+    # Also calculate expected income and CVaR (regenerate full period scenarios first)
     println("Calculating expected income and CVaR for beta = $beta")
+    # Regenerate demand scenarios for the full simulation period
+    stochasticData["demand_scenarios"] = generate_scenarios_demand_rolling(clients, originalDemandData, start_hour, sim_days; num_scenarios=num_scenarios_demand)
     bids, expected_income, expected_cvar = optimize_imbalance(clients, systemData, stochasticData; alpha=alphaCVaR, beta = beta, onePrice = onePrice, extendedOutput=true)
     
     # Store expected income and CVaR
