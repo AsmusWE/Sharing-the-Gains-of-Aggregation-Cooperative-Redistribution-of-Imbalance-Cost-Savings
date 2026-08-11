@@ -1,4 +1,10 @@
 Data/Asset_master_data_asmus.csv
 Data/Asset_master_data_asmus.xlsx
 Data/consumption_data.csv
+Codes/Data/Asset_master_data_asmus.csv
+Codes/Data/Asset_master_data_asmus.xlsx
+Codes/Data/consumption_data.csv
+Codes/FigureScripts/AllocationCorrelation.jl
+Results/
 *.jls
+*.svg

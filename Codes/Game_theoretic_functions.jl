@@ -207,14 +207,25 @@ end
 
 function check_stability(payoffs, coalition_values, clients)
     # This function checks the stability of the coalition by comparing the excess of each coalition
-    coalitions = collect(combinations(clients))
-    grand_coalition = vec(clients)
-    # Remove the grand coalition from the list of coalitions
-    coalitions = filter(c -> Set(c) != Set(grand_coalition), coalitions)
+    # Instead of generating combinations, iterate through all coalitions in coalition_values
+    grand_coalition_set = Set(clients)
+    
     # Checks how the value of a coalition compares to their reward as part of the grand coalition
     instabilities = Dict()
-    for c in coalitions 
-        instabilities[c] = coalition_values[c] - sum(payoffs[i] for i in c)
+    for (coalition, value) in coalition_values
+        # Skip the grand coalition and empty coalition
+        coalition_set = Set(coalition)
+        if coalition_set == grand_coalition_set || isempty(coalition_set)
+            continue
+        end
+
+        # Calculate excess for this coalition
+        instabilities[coalition] = value - sum(payoffs[i] for i in coalition)
+    end
+    
+    # Return the maximum instability (excess)
+    if isempty(instabilities)
+        return 0.0
     end
     max_instability = maximum(values(instabilities))
     
@@ -340,62 +351,73 @@ function gately_point(clients, imbalance_costs)
 end
 
 function gately_point_interval(clients, imbalancesDict, systemData)
-    # This function applies the Gately point calculation for each interval (15-min)
+    # This function applies the Gately point calculation monthly
+    # Adapted for two-price system: only costs when imbalance is in dominant direction
     T = length(imbalancesDict[[clients[1]]])
     grandCoalition = vec(clients)
     gately_distribution = Dict(client => 0.0 for client in clients)
 
-    # Build imbalance costs for each interval
+    # Get time series data
     imbalance_spread = systemData["price_prod_demand_df"][!, "ImbalanceSpreadEUR"]
     dominantDirection = systemData["price_prod_demand_df"][!, "DominatingDirection"]
-    ImbalanceCosts = Dict{Vector{String}, Float64}()
-
-    # Variable to store interval imbalances short term
-    tempImbalance= 0
-    for t in 1:T
-        # Calculate costs for the grand coalition
-        tempImbalance = imbalancesDict[grandCoalition][t]
-        if tempImbalance * dominantDirection[t] > 0
-            # Grand coalition has imbalance in the dominant direction
-            ImbalanceCosts[grandCoalition] = tempImbalance * imbalance_spread[t]
-        else
-            # Grand coalition has imbalance in the non-dominant direction
-            ImbalanceCosts[grandCoalition] = 0.0
+    datetimes = systemData["price_prod_demand_df"][!, "HourUTC_datetime"]
+    
+    # Group intervals by month (year-month)
+    months = unique(Dates.yearmonth.(datetimes))
+    
+    for month in months
+        # Find all intervals belonging to this month
+        month_indices = findall(x -> Dates.yearmonth(x) == month, datetimes)
+        
+        if isempty(month_indices)
+            continue
         end
         
-        for (i, client) in enumerate(clients)
-            # Calculate the imbalance costs for each client
-            tempImbalance = imbalancesDict[[client]][t]
-            if tempImbalance * dominantDirection[t] > 0
-                # Client has imbalance in the dominant direction
-                ImbalanceCosts[[client]] = tempImbalance * imbalance_spread[t]
-            else
-                # Client has imbalance in the non-dominant direction
-                ImbalanceCosts[[client]] = 0.0
+        # Calculate monthly costs for each coalition
+        ImbalanceCosts = Dict{Vector{String}, Float64}()
+        
+        # Calculate costs for the grand coalition
+        monthly_cost = 0.0
+        for t in month_indices
+            tempImbalance = imbalancesDict[grandCoalition][t]
+            imbalance_cost = tempImbalance * imbalance_spread[t]
+            # Two-price: only keep costs (negative values), zero out income (positive values)
+            monthly_cost += min(0.0, imbalance_cost)
+        end
+        ImbalanceCosts[grandCoalition] = monthly_cost
+        
+        # Calculate costs for each client
+        for client in clients
+            monthly_cost = 0.0
+            for t in month_indices
+                tempImbalance = imbalancesDict[[client]][t]
+                imbalance_cost = tempImbalance * imbalance_spread[t]
+                monthly_cost += min(0.0, imbalance_cost)
             end
+            ImbalanceCosts[[client]] = monthly_cost
+            
             # Calculate for grand coalition minus the client
             GCMinusClient = filter(c -> c != client, grandCoalition)
-            tempImbalance =  sum(imbalancesDict[[c]][t] for c in GCMinusClient)
-            if tempImbalance * dominantDirection[t] > 0
-                # Client has imbalance in the dominant direction
-                ImbalanceCosts[GCMinusClient] = tempImbalance * imbalance_spread[t]
-            else
-                # Client has imbalance in the non-dominant direction
-                ImbalanceCosts[GCMinusClient] = 0.0
+            monthly_cost = 0.0
+            for t in month_indices
+                tempImbalance = sum(imbalancesDict[[c]][t] for c in GCMinusClient)
+                imbalance_cost = tempImbalance * imbalance_spread[t]
+                monthly_cost += min(0.0, imbalance_cost)
             end
+            ImbalanceCosts[GCMinusClient] = monthly_cost
         end
 
-        # Calculate Gately point for the current interval and add to the distribution
-        gately_interval = gately_point(clients, ImbalanceCosts)
-        # Check for NaN values in the Gately distribution for the current interval
-        if any(isnan, values(gately_interval))
-            println("Warning: NaN detected in Gately distribution for interval $t.")
+        # Calculate Gately point for this month and add to the distribution
+        gately_monthly = gately_point(clients, ImbalanceCosts)
+        # Check for NaN values in the Gately distribution for this month
+        if any(isnan, values(gately_monthly))
+            println("Warning: NaN detected in Gately distribution for month $month.")
         end
         for client in clients
-            gately_distribution[client] += gately_interval[client]
+            gately_distribution[client] += gately_monthly[client]
         end
-
     end
+    
     return gately_distribution
 end
 
@@ -572,7 +594,7 @@ function nucleolus_optimize(n_clients, imbalances_vec, locked_status, locked_val
     
     # Excess constraints only for unlocked coalitions (excluding grand coalition)
     @constraint(model, excess_cons[i in unlocked_coalitions],
-                sum(payment[j] for j in coalition_indices[i]) - imbalances_vec[i] <= max_excess)
+                imbalances_vec[i] - sum(payment[j] for j in coalition_indices[i]) <= max_excess)
     
     # Grand coalition constraint (budget balance)
     @constraint(model, sum(payment) == imbalances_vec[grand_coalition_idx])
@@ -675,6 +697,9 @@ function scaled_allocation(clients, coalitionCosts)
     
     # Calculate the scaling ratio (aggregated vs unaggregated)
     scaling_ratio = aggregated_cost / unaggregated_cost
+    if isnan(scaling_ratio) || isinf(scaling_ratio)
+        scaling_ratio = 1.0
+    end
     # Scale each client's individual cost by the ratio
     for client in clients
         allocation[client] = coalitionCosts[[client]] * scaling_ratio

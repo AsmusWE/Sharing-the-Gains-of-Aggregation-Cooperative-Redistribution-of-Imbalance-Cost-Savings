@@ -3,6 +3,15 @@ using DataFrames
 using TimeZones
 using Dates, Statistics
 
+function demand_scaling(demand, clients)
+    #Scale demand data - each client gets one scaling factor applied to all timesteps
+    for client in clients
+         scaling_factor = 1 + 0.1 * randn()  # One random factor per client
+         demand[!, Symbol(client)] .= demand[!, Symbol(client)] .* scaling_factor
+    end
+    return demand
+end
+
 """
     load_data() -> Dict, Vector{String}
 
@@ -12,9 +21,9 @@ Returns a dictionary with system data and a vector of clients without missing da
 function load_data()
     # --- Load demand data ---
     demand = CSV.read("Data/consumption_data.csv", DataFrame)
-    demand[!, :HourUTC_datetime] = DateTime.(demand[:, :datetime_cet], DateFormat("yyyy-mm-dd HH:MM:SSz")) .- Hour(1)
+    demand[!, :HourUTC_datetime] = DateTime.(demand[!, :datetime_cet], DateFormat("yyyy-mm-dd HH:MM:SSz")) .- Hour(1)
     select!(demand, Not(:datetime_cet))
-    demand[!, :Z] .= 0
+    demand = demand_scaling(demand, names(demand[!, Not([:HourUTC_datetime])]))
 
     # --- Define PV ownership ---
     pvOwnershipDF = CSV.read("Data/Asset_master_data_asmus.csv", DataFrame; decimal='.')
@@ -56,7 +65,7 @@ function load_data()
     clients_without_missing_data = filter(client -> missing_data_counts[client] == 0, clients)
     # --- Filter combined data to include only clients without missing data ---
     combinedData = select(combinedData, Cols(:HourUTC_datetime, :SolarMWh, clients_without_missing_data..., :PVForecast))
-    demand = select(demand, Cols(:HourUTC_datetime, :Z, clients_without_missing_data...))
+    demand = select(demand, Cols(:HourUTC_datetime, clients_without_missing_data...))
 
     fifteenMinRes = false
     if fifteenMinRes
@@ -74,7 +83,7 @@ function load_data()
         sort!(combinedData, :HourUTC_datetime)
 
         # --- Change demand to 15 minute resolution in the same way ---
-        demand_value_cols = names(demand, Not([:HourUTC_datetime, :Z]))
+        demand_value_cols = names(demand, Not([:HourUTC_datetime]))
         N_demand = nrow(demand)
         expanded_demand = demand[repeat(1:N_demand, inner=repeats), :]
         expanded_demand.:HourUTC_datetime .+= Minute.(15 .* repeat(0:3, outer=N_demand))

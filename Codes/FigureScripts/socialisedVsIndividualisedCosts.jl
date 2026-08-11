@@ -16,15 +16,15 @@ Random.seed!(1) # Set seed for reproducibility
 # =========================
 # Choose which individualised allocation to calculate
 # Should be flat_rate and one other
-allocations = ["gately", "flat_rate"]
-individualAllocation = "gately" # Choose which individualised allocation to compare to flat rate
+allocations = ["full_cost", "flat_rate"]
+individualAllocation = "full_cost" # Choose which individualised allocation to compare to flat rate
 socialisedAllocation = "flat_rate" # Choose which socialised allocation to compare to individualised
 
 systemData, clients, demandData = load_data()
 # Filter out smallest clients for full plot all coalitions, down from 22 to 19
-clients = filter(x -> !(x in ["X", "W", "N"]), clients)
+clients = filter(x -> !(x in ["X", "W"]), clients)
 # Filter down to 12 for nucleolus
-#clients = filter(x -> !(x in ["F", "V", "J","E", "T", "O", "Y"]), clients)
+#clients = filter(x -> !(x in ["F", "V", "J","E", "T", "O", "Y", "H"]), clients)
 #clients = ["A","G","I","S","Y"]
 #clients = ["A","G"]
 
@@ -36,9 +36,11 @@ num_scenarios_demand = 5 # Number of scenarios for demand
 num_scenarios_price = 50 # Number of scenarios for imbalance spread
 spread_scens_length = 1 # Sets the length of the imbalance spread scenarios, will repeat after this if necessary
 beta = 1 # Weighting factor between cost and CVaR in total cost calculation, if not using CVaR for cost allocation
-dummy = true # Whether to do dummy bidding, overwrites optimization to bid expected net consumption
+dummy = false # Whether to do dummy bidding, overwrites optimization to bid expected net consumption
 onePrice = false # Whether to use a one price or two price settlement for imbalance costs
 checkExcess = true # Whether to check excess for the allocations, requires computing all combinations
+useNewsvendor = true # Whether to use newsvendor approach for imbalance cost calculation
+fullOpt = false # Whether to use full optimization for imbalance cost calculation, or just expected values
 
 # Individualization parameters
 individualizationSteps = 0:0.05:1 # Ratio between socialised (flat rate) and individualised (uniform price) costs, 0 means all socialised, 1 means all individualised
@@ -133,7 +135,7 @@ if individualizedCVaR
             
             # Calculate costs for this week
             weeklyTotalCostsDict, weeklyCostsDict, weeklyCvarDict, weeklyImbalancesDict = calculate_total_costs_specific(
-                weekly_systemData, coalitions, stochasticData, days_in_week; alpha=alphaCVaR, beta = beta, dummy = dummy, onePrice = onePrice
+                weekly_systemData, coalitions, stochasticData, days_in_week; alpha=alphaCVaR, beta = beta, dummy = dummy, onePrice = onePrice, useNewsvendor = useNewsvendor, fullOpt = fullOpt
             )
             
             # Accumulate weekly results
@@ -182,8 +184,8 @@ else
     
     # Initialize accumulation dictionaries for weekly costs
     accumulated_costsDict = Dict(coalition => 0.0 for coalition in coalitions)
-    accumulated_cvarDict = Dict(coalition => 0.0 for coalition in coalitions)
-    accumulated_totalCostsDict = Dict(coalition => 0.0 for coalition in coalitions)
+    #accumulated_cvarDict = Dict(coalition => 0.0 for coalition in coalitions)
+    #accumulated_totalCostsDict = Dict(coalition => 0.0 for coalition in coalitions)
     accumulated_imbalancesDict = Dict(coalition => Float64[] for coalition in coalitions)
     
     # Optimize week by week (7 days at a time)
@@ -211,9 +213,9 @@ else
         
         # Accumulate weekly results
         for coalition in coalitions
-            accumulated_totalCostsDict[coalition] += weeklyTotalCostsDict[coalition]
+            #accumulated_totalCostsDict[coalition] += weeklyTotalCostsDict[coalition]
             accumulated_costsDict[coalition] += weeklyCostsDict[coalition]
-            accumulated_cvarDict[coalition] += weeklyCvarDict[coalition]
+            #accumulated_cvarDict[coalition] += weeklyCvarDict[coalition]
             append!(accumulated_imbalancesDict[coalition], weeklyImbalancesDict[coalition])
         end
     end
@@ -222,9 +224,9 @@ else
         allocations, clients, accumulated_costsDict, accumulated_imbalancesDict, systemData; printing = true, alpha=alphaCVaR
     )
 
-    println("Total costs (regular + CVaR): ", accumulated_totalCostsDict[clients])
+    #println("Total costs (regular + CVaR): ", accumulated_totalCostsDict[clients])
     println("Regular costs only: ", accumulated_costsDict[clients])
-    println("CVaR only: ", accumulated_cvarDict[clients])
+    #println("CVaR only: ", accumulated_cvarDict[clients])
     mixedAllocationDF = DataFrame(step = collect(individualizationSteps))
     for client in clients
         flat = allocation_costs[socialisedAllocation][client]
@@ -280,34 +282,49 @@ end
 # =========================
 # 4. Scatter Plot: Cost per MWh vs Individualization Step
 # =========================
+# Flip sign to convert from income to cost for plotting
+mixedAllocationCostPerMWhDF_plot = copy(mixedAllocationCostPerMWhDF)
+for client in clients
+    mixedAllocationCostPerMWhDF_plot[!, client] = -mixedAllocationCostPerMWhDF[!, client]
+end
+
 p = plot(
     #title = "Client Cost per MWh vs Individualisation Grade",
     xlabel = "Individualisation Grade",
     ylabel = "Imbalance Cost per MWh (EUR/MWh)",
     background_color = :white,
     foreground_color_subplot = :black,
-    size = (850, 650),
+    size = (780, 600),
     guidefontsize=16,
     legendfontsize=14
 )
-palette_colors = palette(:tab10, length(clients))
+
+# Create color gradient from blue (high cost) to pink (low cost) based on final individualized cost
+final_costs = [mixedAllocationCostPerMWhDF_plot[end, client] for client in clients]
+cost_order = sortperm(final_costs, rev=true)  # High to low
+color_gradient = range(colorant"#0066CC", stop=colorant"#FF69B4", length=length(clients))
+palette_colors = [color_gradient[findfirst(==(i), cost_order)] for i in 1:length(clients)]
+
 for (i, client) in enumerate(clients)
     #scatter!(p,
-    #    mixedAllocationCostPerMWhDF.step,
-    #    mixedAllocationCostPerMWhDF[!, client],
+    #    mixedAllocationCostPerMWhDF_plot.step,
+    #    mixedAllocationCostPerMWhDF_plot[!, client],
     #    label = "client $client",
     #    markersize = 5,
     #    markerstrokewidth = 0.5,
     #    color = palette_colors[i]
     #)
     plot!(p,
-        mixedAllocationCostPerMWhDF.step,
-        mixedAllocationCostPerMWhDF[!, client],
+        mixedAllocationCostPerMWhDF_plot.step,
+        mixedAllocationCostPerMWhDF_plot[!, client],
         label = (i == 1 ? "Individual Client Cost" : ""),
         color = palette_colors[i],
         lw = 1,
-        xformatter=_->"",
-        #yformatter=_->"",
+        # Increase axis label and tick font sizes
+        xguidefont = font(18),
+        yguidefont = font(18),
+        xtickfont = font(14),
+        ytickfont = font(14),
     )
 end
 

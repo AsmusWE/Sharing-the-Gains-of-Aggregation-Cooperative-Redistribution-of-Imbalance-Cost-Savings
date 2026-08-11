@@ -1,4 +1,5 @@
 using Plots, Serialization, CSV, DataFrames#, StatsPlots
+include("Game_theoretic_functions.jl")
 
 function create_alphabetic_client_mapping(clients)
     # Create a mapping from original client names to alphabetic names (A, B, C, D...)
@@ -36,12 +37,11 @@ function plot_results(
     start_hour,
     sim_days,
     allocation_labels,
-    WMAPE;
-    cvar = false
+    WMAPE
 )
     # Cutting data to the specified start hour and sim_days
     start_idx = findfirst(x -> x >= start_hour, systemData["price_prod_demand_df"][!,"HourUTC_datetime"])
-    end_idx = start_idx + sim_days * 24*4 - 1
+    end_idx = start_idx + sim_days * 24 - 1
     dayData = deepcopy(systemData)
     dayData["price_prod_demand_df"] = systemData["price_prod_demand_df"][start_idx:end_idx, :]
 
@@ -65,35 +65,23 @@ function plot_results(
     end
     yMax =maximum([maximum(cost_MWh[alloc][k] for k in plotKeys) for alloc in allocations if haskey(cost_MWh, alloc)])
     #yMin = minimum([minimum(cost_MWh[alloc][k] for k in plotKeys) for alloc in allocations if haskey(cost_MWh, alloc)])
-    if cvar == false
-        p_fees_MWh = plot(
-            #title="Imbalance cost per MWh demand",
-            xlabel="Client",
-            ylabel="€/MWh",
-            xticks=(1:length(plotKeys), plotKeysAlphabetic),
-            xrotation=45,
-            #legend=:topright,
-            #ylim = (0, yMax * 1.1),
-            #titlefont=font(10)  # Reduce title font size
-        )
-    else
-        ymin = minimum([minimum(cost_MWh[alloc][k] for k in plotKeys) for alloc in allocations if haskey(cost_MWh, alloc)])
-        p_fees_MWh = plot(
-            title="CVaR contribution per MWh demand",
-            xlabel="Client",
-            ylabel="€/MWh",
-            xticks=(1:length(plotKeys), plotKeysAlphabetic),
-            xrotation=45,
-            legend=:topleft,
-            ylim = (ymin-0.01, yMax * 1.1),
-            titlefont=font(10)  # Reduce title font size
-        )
-    end
+    p_fees_MWh = plot(
+        #title="Imbalance cost per MWh demand",
+        xlabel="Client",
+        ylabel="Imbalance cost [€/MWh]",
+        xticks=(1:length(plotKeys), plotKeysAlphabetic),
+        xrotation=45,
+        #legend=:topright,
+        #ylim = (0, yMax * 1.1),
+        #titlefont=font(10)  # Reduce title font size
+        tickfont=font(12),
+        guidefont=font(14)
+    )
     for alloc in allocations
         if haskey(cost_MWh, alloc)
             label, color = allocation_labels[alloc]
             plotVals = [cost_MWh[alloc][k] for k in plotKeys]
-            scatter!(p_fees_MWh, 1:length(plotKeys), plotVals, label=label, color=color)
+            scatter!(p_fees_MWh, 1:length(plotKeys), -plotVals, label=label, color=color)
         end
     end
     display(p_fees_MWh)
@@ -112,77 +100,98 @@ function plot_results(
         ylabel="PV Coverage [%]",
         xticks=(1:length(plotKeys), plotKeysAlphabetic),
         xrotation=45,
-        ylim = (0, 210)
+        ylim = (0, 210),
+        tickfont=font(12),
+        guidefont=font(14)
     )
     bar!(p_pv_coverage, 1:length(plotKeys), [pv_coverage_ratio[client] for client in plotKeys], label="PV Coverage")
     display(p_pv_coverage)
     
-    if cvar == false
-        p_Cost_vs_pv = plot(
-            title="Imbalance cost per MWh vs PV Coverage",
-            xlabel="PV Coverage of Demand [%]",
-            ylabel="€/MWh",
-            legend=:outertopright,
-            ylim = (0, yMax * 1.1),
-        )
-    else
-        ymin = minimum([minimum(cost_MWh[alloc][k] for k in plotKeys) for alloc in allocations if haskey(cost_MWh, alloc)])
-        p_Cost_vs_pv = plot(
-            title="CVaR contribution per MWh vs PV Coverage",
-            xlabel="PV Coverage of Demand [%]",
-            ylabel="€/MWh",
-            legend=:outertopright,
-            ylim = (ymin-0.05, yMax * 1.1),
-        )
-    end
+    p_Cost_vs_pv = plot(
+        title="Imbalance cost per MWh vs PV Coverage",
+        xlabel="PV Coverage of Demand [%]",
+        ylabel="Imbalance cost [€/MWh]",
+        legend=:outertopright,
+        ylim = (0, yMax * 1.1),
+        tickfont=font(12),
+        guidefont=font(14)
+    )
     
     for alloc in allocations
         if haskey(cost_MWh, alloc)
             label, color = allocation_labels[alloc]
             x_vals = [pv_coverage_ratio[k] for k in plotKeys]
             y_vals = [cost_MWh[alloc][k] for k in plotKeys]
-            scatter!(p_Cost_vs_pv, x_vals, y_vals, label=label, color=color, alpha=0.7)
+            scatter!(p_Cost_vs_pv, x_vals, y_vals, label=label, color=color, alpha=1)
         end
     end
     display(p_Cost_vs_pv)
 
     # Plot Cost per MWh vs WMAPE
-    if cvar == false
-        p_Cost_vs_wmape = plot(
-            #title="Imbalance cost per MWh vs WMAPE",
-            xlabel="WMAPE [%]",
-            ylabel="€/MWh",
-            #legend=:outertopright,
-            ylim = (0, yMax * 1.1),
-        )
-    else
-        ymin = minimum([minimum(cost_MWh[alloc][k] for k in plotKeys) for alloc in allocations if haskey(cost_MWh, alloc)])
-        p_Cost_vs_wmape = plot(
-            #title="CVaR contribution per MWh vs WMAPE",
-            xlabel="WMAPE [%]",
-            ylabel="€/MWh",
-            #legend=:outertopright,
-            ylim = (ymin-0.05, yMax * 1.1),
-        )
-    end
-    
+    p_Cost_vs_wmape = plot(
+        #title="Imbalance cost per MWh vs WMAPE",
+        xlabel="WMAPE [%]",
+        ylabel="Imbalance cost [€/MWh]",
+        #legend=:outertopright,
+        #ylim = (0, yMax * 1.1),
+        tickfont=font(12),
+        guidefont=font(14),
+        size=(600, 300),
+        top_margin=4Plots.mm,
+        bottom_margin=4Plots.mm,
+        left_margin=4Plots.mm
+    )
+    println(plotKeys)
     for alloc in allocations
+        if alloc != "full_cost"
+            continue
+        end
         if haskey(cost_MWh, alloc)
             label, color = allocation_labels[alloc]
             x_vals = [WMAPE[k] for k in plotKeys]
-            y_vals = [cost_MWh[alloc][k] for k in plotKeys]
-            scatter!(p_Cost_vs_wmape, x_vals, y_vals, label=label, color=color, alpha=0.7)
+            y_vals = -[cost_MWh[alloc][k] for k in plotKeys]
+            scatter!(p_Cost_vs_wmape, x_vals, y_vals, label=label, color=color, alpha=1)
+            
+            # Add best fit line (linear regression)
+            if length(x_vals) > 1
+                # Calculate linear regression: y = mx + b (vectorized for speed)
+                n = length(x_vals)
+                x_mean = sum(x_vals) / n
+                y_mean = sum(y_vals) / n
+                
+                # Vectorized calculation
+                x_centered = x_vals .- x_mean
+                y_centered = y_vals .- y_mean
+                numerator = sum(x_centered .* y_centered)
+                denominator = sum(x_centered .^ 2)
+                
+                if denominator != 0
+                    m = numerator / denominator
+                    b = y_mean - m * x_mean
+                    
+                    # Calculate R²
+                    y_pred = m .* x_vals .+ b
+                    ss_res = sum((y_vals .- y_pred) .^ 2)
+                    ss_tot = sum(y_centered .^ 2)
+                    r_squared = 1 - (ss_res / ss_tot)
+                    
+                    # Generate points for the line
+                    x_range = range(minimum(x_vals), maximum(x_vals), length=100)
+                    y_fit = m .* x_range .+ b
+                    
+                    plot!(p_Cost_vs_wmape, x_range, y_fit, 
+                          label="Best Fit (R² = $(round(r_squared, digits=3)))", 
+                          color= RGB(136/255, 216/255, 176/255), 
+                          linestyle=:dash, 
+                          linewidth=2)
+                end
+            end
         end
     end
     display(p_Cost_vs_wmape)
 
     # Total Cost
-    if cvar == false
-        p_fees_total = plot(title="Total imbalance cost per client", xlabel="Client", ylabel="€", xticks=(1:length(plotKeys), plotKeysAlphabetic), xrotation=45, legend=:topright)
-    else
-        ymin = minimum([minimum(allocation_costs[alloc][k] for k in plotKeys) for alloc in allocations if haskey(allocation_costs, alloc)])
-        p_fees_total = plot(title="CVaR contribution total per client", xlabel="Client", ylabel="€", xticks=(1:length(plotKeys), plotKeysAlphabetic), xrotation=45, legend=:topright, ylim = (ymin-0.05, maximum([maximum(allocation_costs[alloc][k] for k in plotKeys) for alloc in allocations if haskey(allocation_costs, alloc)]) * 1.1))
-    end
+    p_fees_total = plot(title="Total imbalance cost per client", xlabel="Client", ylabel="€", xticks=(1:length(plotKeys), plotKeysAlphabetic), xrotation=45, legend=:topright, tickfont=font(12), guidefont=font(14))
     for alloc in allocations
         if haskey(allocation_costs, alloc)
             label, color = allocation_labels[alloc]
@@ -207,63 +216,51 @@ function plot_results(
 
     #min_val = minimum([cost_imbalance[alloc][k] for alloc in allocations if haskey(cost_imbalance, alloc) for k in plotKeys])
     #lower_ylim = min(0.0, min_val - 0.05)  # Add a small margin below min_val, but not above 0
-    if cvar == false
-        p_CostRatio = plot(
-            #title="Imbalance cost contribution vs individual cost\n Noise Demand Forecast, Perfect PV Forecast",
-            xlabel="Client",
-            ylabel="Allocation relative to singleton cost [%]",
-            xticks=(1:length(plotKeys), plotKeysAlphabetic),
-            xrotation=45,
-            #ylim=(0, 105),
-            #legend=:bottomleft
-        )
-    else
-        ymin = minimum([minimum(CostRatio[alloc][k] for k in plotKeys) for alloc in allocations if haskey(CostRatio, alloc)])
-        p_CostRatio = plot(
-            title="CVaR contribution vs individual CVaR",
-            xlabel="Client",
-            ylabel="Relative CVaR [%]",
-            xticks=(1:length(plotKeys), plotKeysAlphabetic),
-            xrotation=45,
-            ylim=(ymin-0.05, 105),
-            legend=:bottomleft
-        )
-    end
+    p_CostRatio = plot(
+        #title="Imbalance cost contribution vs individual cost\n Noise Demand Forecast, Perfect PV Forecast",
+        xlabel="Client",
+        ylabel="Relative Cost [%]",
+        xticks=(1:length(plotKeys), plotKeysAlphabetic),
+        xrotation=45,
+        markersize = 2,
+        #ylim=(0, 105),
+        #legend=:bottomleft,
+        size = (320, 200),
+        tickfont=font(6, "Times Roman"),
+        guidefont=font(8, "Times Roman"),
+        legendfont=font(6, "Times Roman")
+    )
+    marker_shapes = [:circle, :rect, :diamond, :utriangle, :dtriangle, :cross, :xcross, :star5]
+    shape_idx = 1
     for alloc in allocations
         if haskey(CostRatio, alloc)
             label, color = allocation_labels[alloc]
             plotVals = [CostRatio[alloc][k] for k in plotKeys]
-            scatter!(p_CostRatio, 1:length(plotKeys), plotVals, label=label, color=color)
+            marker = marker_shapes[mod1(shape_idx, length(marker_shapes))]
+            scatter!(p_CostRatio, 1:length(plotKeys), plotVals, label=label, color=color, markershape=marker)
+            shape_idx += 1
         end
     end
+    savefig(p_CostRatio, "p_CostRatio.svg")
     display(p_CostRatio)
 
     # Plot CostRatio vs PV Coverage
-    if cvar == false
-        p_Cost_ratio_vs_pv = plot(
-            title="Imbalance Cost Ratio vs PV Coverage",
-            xlabel="PV Coverage of Demand [%]",
-            ylabel="%",
-            legend=:outertopright,
-            ylim = (0, 105)
-        )
-    else
-        ymin = minimum([minimum(CostRatio[alloc][k] for k in plotKeys) for alloc in allocations if haskey(CostRatio, alloc)])
-        p_Cost_ratio_vs_pv = plot(
-            title="CVaR Contribution Ratio vs PV Coverage",
-            xlabel="PV Coverage of Demand [%]",
-            ylabel="%",
-            legend=:outertopright,
-            ylim = (ymin-0.05, 105)
-        )
-    end
+    p_Cost_ratio_vs_pv = plot(
+        title="Imbalance Cost Ratio vs PV Coverage",
+        xlabel="PV Coverage of Demand [%]",
+        ylabel="%",
+        legend=:outertopright,
+        ylim = (0, 105),
+        tickfont=font(12),
+        guidefont=font(14)
+    )
     
     for alloc in allocations
         if haskey(CostRatio, alloc)
             label, color = allocation_labels[alloc]
             x_vals = [pv_coverage_ratio[k] for k in plotKeys]
             y_vals = [CostRatio[alloc][k] for k in plotKeys]
-            scatter!(p_Cost_ratio_vs_pv, x_vals, y_vals, label=label, color=color, alpha=0.7)
+            scatter!(p_Cost_ratio_vs_pv, x_vals, y_vals, label=label, color=color, alpha=1)
         end
     end
     display(p_Cost_ratio_vs_pv)
@@ -288,11 +285,43 @@ function plot_results(
     total_MWh_demand = Dict(client => sum(dayData["price_prod_demand_df"][!, Symbol(client)]) for client in plotKeys)
     p_total_demand = plot(
         #title="Total MWh Demand per Client", 
-        xlabel="Client", ylabel="Total Demand [MWh]", xticks=(1:length(plotKeys), plotKeysAlphabetic), xrotation=45, legend=:topright
+        xlabel="Client", ylabel="Total Demand [MWh]", xticks=(1:length(plotKeys), plotKeysAlphabetic), xrotation=45, legend=:topright, tickfont=font(12), guidefont=font(14)
     )
     plotVals_total_demand = [total_MWh_demand[k] for k in plotKeys]
     bar!(p_total_demand, 1:length(plotKeys), plotVals_total_demand, label=false, color=:black)
     display(p_total_demand)
+    
+    # Socialised vs Individualised Plot
+    # Check if we have both flat_rate and full_cost allocations
+    if haskey(allocation_costs, "flat_rate") && haskey(allocation_costs, "full_cost")
+        socialisedAllocation = "flat_rate"
+        individualAllocation = "full_cost"
+        individualizationSteps = 0:0.05:1
+        
+        # Create mixed allocation DataFrame
+        mixedAllocationDF = DataFrame(step = collect(individualizationSteps))
+        for client in clients
+            flat = allocation_costs[socialisedAllocation][client]
+            indiv = allocation_costs[individualAllocation][client]
+            mixedAllocationDF[!, client] = (1 .- mixedAllocationDF.step) .* flat .+ mixedAllocationDF.step .* indiv
+        end
+        
+        # Check stability (find where max excess becomes negative)
+        negativeExcessStep = nothing
+        # Create a full cost dictionary for stability checking
+        
+        for row in eachrow(mixedAllocationDF)
+            stepAllocation = Dict(client => row[client] for client in clients)
+            maxExcessStep = check_stability(stepAllocation, coalitionCost, clients)
+            if maxExcessStep < 0
+                negativeExcessStep = row[:step]
+                break
+            end
+        end
+        # Plot socialised vs individualised
+        p_mixed = plot_socialised_vs_individualised(mixedAllocationDF, clients, dayData; negativeExcessStep=negativeExcessStep)
+        display(p_mixed)
+    end
 end
 
 function plot_variance(
@@ -316,7 +345,9 @@ function plot_variance(
         ylabel="Relative costs [%]",
         xticks=(1:length(filtered_allocations), [allocation_labels[a][1] for a in filtered_allocations]),
         legend = :bottomright,
-        xrotation=30
+        xrotation=30,
+        tickfont=font(12),
+        guidefont=font(14)
     )
     
     plot_index = 1
@@ -389,7 +420,9 @@ function plot_cost_difference(allocation_costs, clients, systemData)
         xticks=(1:length(clients), clientsAlphabetic),
         xrotation=45,
         color=:blue,
-        legend=:none
+        legend=:none,
+        tickfont=font(12),
+        guidefont=font(14)
     )
     display(p1)
     
@@ -402,7 +435,9 @@ function plot_cost_difference(allocation_costs, clients, systemData)
         xticks=(1:length(clients), clientsAlphabetic),
         xrotation=45,
         color=:red,
-        legend=:none
+        legend=:none,
+        tickfont=font(12),
+        guidefont=font(14)
     )
     display(p2)
     # Print a table with the most expensive and cheapest allocation for each client
@@ -416,4 +451,120 @@ function plot_cost_difference(allocation_costs, clients, systemData)
         most_expensive_cost = cost_MWh[most_expensive_alloc][client]
         println("$(clientsAlphabetic[i])\t$(cheapest_alloc)\t$(round(cheapest_cost, digits=2))\t$(most_expensive_alloc)\t$(round(most_expensive_cost, digits=2))")
     end
+end
+
+function plot_socialised_vs_individualised(
+    mixedAllocationDF,
+    clients,
+    systemData;
+    negativeExcessStep=nothing
+)
+    """
+    Create a scatter plot showing cost per MWh vs individualization step for each client.
+    
+    Parameters:
+    - mixedAllocationDF: DataFrame with columns 'step' and one column per client containing their costs
+    - clients: Array of client identifiers
+    - systemData: System data dictionary containing demand information
+    - negativeExcessStep: Optional step value where max excess becomes negative (adds vertical line)
+    
+    Returns:
+    - Plot object
+    """
+    
+    # Calculate cost per MWh for each client
+    totalDemandByClient = Dict(client => sum(systemData["price_prod_demand_df"][!, client]) for client in clients)
+    mixedAllocationCostPerMWhDF = DataFrame(step = mixedAllocationDF.step)
+    for client in clients
+        denom = totalDemandByClient[client]
+        if isnothing(denom) || denom == 0
+            mixedAllocationCostPerMWhDF[!, client] = fill(missing, nrow(mixedAllocationDF))
+        else
+            mixedAllocationCostPerMWhDF[!, client] = mixedAllocationDF[!, client] ./ denom
+        end
+    end
+    
+    # Flip sign to convert from income to cost for plotting
+    mixedAllocationCostPerMWhDF_plot = copy(mixedAllocationCostPerMWhDF)
+    for client in clients
+        mixedAllocationCostPerMWhDF_plot[!, client] = -mixedAllocationCostPerMWhDF[!, client]
+    end
+    
+    p = plot(
+        xlabel = "Individualisation Grade",
+        ylabel = "Imbalance cost [€/MWh]",
+        background_color = :white,
+        foreground_color_subplot = :black,
+        tickfont=font(6, "Times Roman"),
+        guidefont=font(8, "Times Roman"),
+        legendfont=font(6, "Times Roman"),
+        size=(320, 160),
+        #top_margin=4Plots.mm,
+        #bottom_margin=4Plots.mm,
+        #left_margin=4Plots.mm,
+        legend = :topleft
+    )
+    
+    # Create color gradient from low to high cost: LightGreen -> Sand -> Orange -> Red
+    LightGreen = RGB(150/255, 206/255, 180/255)
+    Sand = RGB(255/255, 238/255, 173/255)
+    Orange = RGB(255/255, 204/255, 92/255)
+    Red = RGB(255/255, 111/255, 105/255)
+    Green = RGB(136/255, 216/255, 176/255)
+    
+    final_costs = [mixedAllocationCostPerMWhDF_plot[end, client] for client in clients]
+    cost_order = sortperm(final_costs)  # Low to high
+    
+    # Create gradient through all four colors
+    n_clients = length(clients)
+    if n_clients == 1
+        palette_colors = [LightGreen]
+    elseif n_clients == 2
+        palette_colors = [LightGreen, Red]
+    elseif n_clients == 3
+        palette_colors = [LightGreen, Orange, Red]
+    else
+        # Interpolate through all four colors
+        n_per_segment = div(n_clients - 1, 3)
+        remainder = (n_clients - 1) % 3
+        
+        # Distribute remainder across segments
+        n1 = n_per_segment + (remainder >= 1 ? 1 : 0) + 1
+        n2 = n_per_segment + (remainder >= 2 ? 1 : 0) + 1
+        n3 = n_per_segment + (remainder >= 3 ? 1 : 0) + 1
+        
+        gradient1 = range(LightGreen, stop=Sand, length=n1)
+        gradient2 = range(Sand, stop=Orange, length=n2)
+        gradient3 = range(Orange, stop=Red, length=n3)
+        
+        # Combine gradients, removing duplicate intermediate points
+        color_gradient = vcat(collect(gradient1)[1:end-1], collect(gradient2)[1:end-1], collect(gradient3))
+    end
+    
+    palette_colors = [color_gradient[findfirst(==(i), cost_order)] for i in 1:length(clients)]
+    
+    for (i, client) in enumerate(clients)
+        plot!(p,
+            mixedAllocationCostPerMWhDF_plot.step,
+            mixedAllocationCostPerMWhDF_plot[!, client],
+            label = (i == 1 ? "Client Cost" : ""),
+            color = palette_colors[i],
+            lw = 2,
+            xguidefont = font(8, "Times Roman"),
+            yguidefont = font(8, "Times Roman"),
+            xtickfont = font(6, "Times Roman"),
+            ytickfont = font(6, "Times Roman"),
+        )
+    end
+    
+    # Add vertical line where max excess becomes negative
+    if !isnothing(negativeExcessStep)
+        vline!(p, [negativeExcessStep], 
+               color = Green, 
+               linestyle = :dash, 
+               linewidth = 3,
+               label = "Line of Stability")
+    end
+    
+    return p
 end

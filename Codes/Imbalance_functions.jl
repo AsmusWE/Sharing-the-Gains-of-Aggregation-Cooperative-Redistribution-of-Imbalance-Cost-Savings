@@ -10,7 +10,7 @@ using Gurobi
 using DataFrames
 
 # Define Gurobi environment, needed to supress outputs
-const GUROBI_ENV = Gurobi.Env()
+#const GUROBI_ENV = Gurobi.Env()
 
 function get_demand_forecast(coalition, stochasticData, systemData, TimeHorizon)
     forecast_type = stochasticData["demand_forecast"]
@@ -174,36 +174,42 @@ function optimize_imbalance(coalition, systemData, stochasticData; alpha=0.95, b
     end
 end
 
-function newsvendor_bidding(coalition, systemData, stochasticData; onePrice = false)
-    clientPVOwnership = getindex.(Ref(systemData["clientPVOwnership"]), coalition)
+function newsvendor_bidding(coalitions, systemData, stochasticData; onePrice = false)
+    # Process all coalitions at once to avoid redundant data handling
     TimeHorizon = length(systemData["price_prod_demand_df"][!, "HourUTC_datetime"])
     T = min(TimeHorizon, size(systemData["price_prod_demand_df"])[1])
-    demand = get_demand_forecast(coalition, stochasticData, systemData, TimeHorizon)
+    
+    # Get PV forecast once (shared across all coalitions)
     pvProduction = get_pv_forecast(stochasticData, systemData, T)
-    spreadScenarios, spotScenarios = stochasticData["imbalance_spread"], stochasticData["spot_price"]
-    # Dominant direction is 0 or 1 here. 0 corresponds to -1 (need for upregulation) in the original dataset. 1 corresponds to +1 (need for downregulation)
-    # Needs to be tied to spreadScenarios, pre-generated to speed up optimization
-    dominantDirection = stochasticData["dominantDirection01"]
-    # If T longer than spreadScenarios, repeat the scenarios
+    
+    # Get spread scenarios once (shared across all coalitions)
+    spreadScenarios = stochasticData["imbalance_spread"]
+    
+    # If T longer than spreadScenarios, repeat the scenarios once
     if size(spreadScenarios, 2) < T
         spreadScenarios = repeat(spreadScenarios, 1, ceil(Int, T / size(spreadScenarios, 2)))
-        dominantDirection = repeat(dominantDirection, 1, ceil(Int, T / size(dominantDirection, 2)))
-        spotScenarios = repeat(spotScenarios, 1, ceil(Int, T / size(spotScenarios, 2)))
     end
-    prod = pvProduction .* sum(clientPVOwnership)
-
-    # Calculate costUp: average price of positive imbalance (set negative values to 0)
+    
+    # Calculate costUp and costDown once (shared across all coalitions)
     costUp = mean(max.(spreadScenarios, 0.0))
-    
-    # Calculate costDown: average price of negative imbalance (set positive values to 0, take absolute value of negatives)
     costDown = mean(abs.(min.(spreadScenarios, 0.0)))
-    
     optimalBiddingQuantile = costUp / (costUp + costDown)
-
-    # Apply quantile to the distribution of net consumption for each time period
-    # demand is [T x scenarios], prod is [T], so we need to broadcast prod across scenarios
-    netConsumptionScenarios = demand .- prod  # Broadcasting prod across the scenario dimension
-    bids = [quantile(netConsumptionScenarios[t, :], optimalBiddingQuantile) for t in 1:T]
+    
+    # Initialize results dictionary
+    bids = Dict()
+    
+    # Process each coalition
+    for coalition in coalitions
+        clientPVOwnership = getindex.(Ref(systemData["clientPVOwnership"]), coalition)
+        demand = get_demand_forecast(coalition, stochasticData, systemData, TimeHorizon)
+        prod = pvProduction .* sum(clientPVOwnership)
+        
+        # Apply quantile to the distribution of net consumption for each time period
+        # demand is [T x scenarios], prod is [T], so we need to broadcast prod across scenarios
+        netConsumptionScenarios = demand .- prod  # Broadcasting prod across the scenario dimension
+        bids[coalition] = [quantile(netConsumptionScenarios[t, :], optimalBiddingQuantile) for t in 1:T]
+    end
+    
     return bids
 end
 
@@ -214,43 +220,40 @@ function get_imbalance(bids, pvProd, demand)
     return bids[1:min_length] + pvProd[1:min_length] - demand[1:min_length]
 end
 
-function calculate_bids(coalitions, systemData, stochasticData; fullOpt = true, alpha=0.05, beta = 0.05, onePrice = false, useNewsvendor = false)
+function calculate_bids(coalitions, systemData, stochasticData; fullOpt = false, alpha=0.05, beta = 0.05, onePrice = false, useNewsvendor = true)
     # This function calculates the bids for each coalition combination
     # Set useNewsvendor = true to use newsvendor_bidding instead of optimize_imbalance
-    bids = Dict()
-    
-    # Calculate bids for individual clients first
     individual_clients = filter(c -> length(c) == 1, coalitions)
-    for client in individual_clients
-        #println("Calculating bid for client: ", client)
-        if useNewsvendor
-            bids[client] = newsvendor_bidding(client, systemData, stochasticData; onePrice = onePrice)
-        else
+    bids = Dict()
+    # Calculate bids for individual clients first
+    if useNewsvendor
+        # Use newsvendor bidding which processes all coalitions at once
+        bids = newsvendor_bidding(individual_clients, systemData, stochasticData; onePrice = onePrice)
+    else
+        for client in individual_clients
+            #println("Calculating bid for client: ", client)
             bids[client] = optimize_imbalance(client, systemData, stochasticData; alpha=alpha, beta=beta, onePrice = onePrice)
         end
     end
-
+    
+    
     if fullOpt
         # Full optimization for all coalitions (computationally expensive)
         for coalition in coalitions
             if length(coalition) > 1
                 #println("Calculating bid for coalition: ", coalition)
-                if useNewsvendor
-                    bids[coalition] = newsvendor_bidding(coalition, systemData, stochasticData; onePrice = onePrice)
-                else
-                    bids[coalition] = optimize_imbalance(coalition, systemData, stochasticData; alpha=alpha, beta=beta, onePrice = onePrice)
-                end
+                bids[coalition] = optimize_imbalance(coalition, systemData, stochasticData; alpha=alpha, beta=beta, onePrice = onePrice)
             end
         end
     else
         # Calculate bids for coalitions by summing individual bids (will not give the same answer as full optimization when using CVaR)
         for coalition in coalitions
             if length(coalition) > 1
-                bids[coalition] = sum(bids[[client]] for client in coalition)
+                bids[coalition] = reduce(+, (bids[[client]] for client in coalition))
             end
         end
     end
-
+    GC.gc()  # Force garbage collection to free memory
     return bids
 end
 
@@ -320,19 +323,28 @@ function calculate_WMAPE(imbalancesDict, systemData, coalition)
     # WMAPE = sum(|actual - forecast|) / sum(|actual|) * 100
     # It compares the imbalances with the demand in systemData
 
-    demand = sum(systemData["price_prod_demand_df"][!, client] for client in coalition)
-    imbalances = imbalancesDict[coalition]
+    if length(coalition) == 1
+        demand = systemData["price_prod_demand_df"][!, coalition]
+        production = systemData["price_prod_demand_df"][!, :SolarMWh] .* systemData["clientPVOwnership"][coalition]
+        imbalances = imbalancesDict[[coalition]]
+    else
+        demand = sum(systemData["price_prod_demand_df"][!, client] for client in coalition)
+        production = systemData["price_prod_demand_df"][!, :SolarMWh] .* sum(systemData["clientPVOwnership"][client] for client in coalition)
+        imbalances = imbalancesDict[coalition]
+    end
+    
+    
     
     # WMAPE calculation: sum of absolute errors divided by sum of actual values
     total_absolute_error = sum(abs.(imbalances))
-    total_actual = sum(abs.(demand))
+    total_actual = sum(abs.(demand-production))
     
     WMAPE = (total_absolute_error / total_actual) * 100  # Convert to percentage
     
     return WMAPE
 end
 
-function calculate_imbalances_specific(systemData, coalitions, stochasticData, simDays; alpha=0.05, beta = 0.5, dummy = false, onePrice = false, useNewsvendor = false)
+function calculate_imbalances_specific(systemData, coalitions, stochasticData, simDays; alpha=0.05, beta = 0.5, dummy = false, onePrice = false, useNewsvendor = false, fullOpt = true)
     # Calculate imbalances for specific coalitions
     T = simDays * 24 
     # Get all clients
@@ -342,7 +354,7 @@ function calculate_imbalances_specific(systemData, coalitions, stochasticData, s
         bids = dummy_bidding(stochasticData, all_clients, coalitions, systemData)
     else
         # Use two-price optimization for bids
-        bids = calculate_bids(coalitions, systemData, stochasticData; fullOpt = true, alpha = alpha, beta = beta, onePrice = onePrice, useNewsvendor = useNewsvendor)
+        bids = calculate_bids(coalitions, systemData, stochasticData; fullOpt = fullOpt, alpha = alpha, beta = beta, onePrice = onePrice, useNewsvendor = useNewsvendor)
     end
     # Pre-calculate actual demand and PV for each client
     actual_demand_per_client = Dict()
@@ -369,11 +381,10 @@ function calculate_imbalances_specific(systemData, coalitions, stochasticData, s
         
         imbalancesDict[coalition] = actual_imbalances
     end
-
     return imbalancesDict, bids
 end
 
-function calculate_total_costs_specific(systemData, coalitions, stochasticData, simDays; alpha=0.05, cost_weight=1.0, cvar_weight=1.0, beta = 0.5, dummy = false, onePrice = false, useNewsvendor = false)
+function calculate_total_costs_specific(systemData, coalitions, stochasticData, simDays; alpha=0.95, cost_weight=1.0, cvar_weight=1.0, beta = 0.5, dummy = false, onePrice = false, useNewsvendor = true, fullOpt = false)
     # Calculate total costs combining both regular imbalance costs and CVaR
     # alpha: confidence level for CVaR calculation
     # cost_weight: weight for regular imbalance costs in the total
@@ -394,7 +405,7 @@ function calculate_total_costs_specific(systemData, coalitions, stochasticData, 
     spot_price = systemData["price_prod_demand_df"][1:T, "SpotPriceEUR"]
     
     # Get imbalances for all coalitions
-    imbalancesDict, bids = calculate_imbalances_specific(systemData, coalitions, stochasticData, simDays; alpha=alpha, beta=beta, dummy =dummy , onePrice = onePrice, useNewsvendor = useNewsvendor)
+    imbalancesDict, bids = calculate_imbalances_specific(systemData, coalitions, stochasticData, simDays; alpha=alpha, beta=beta, dummy =dummy , onePrice = onePrice, useNewsvendor = useNewsvendor, fullOpt = fullOpt)
     
     # Calculate CVaR for each coalition
     intervals = T
@@ -405,7 +416,7 @@ function calculate_total_costs_specific(systemData, coalitions, stochasticData, 
     cvar_dict = Dict{Any, Float64}()
     total_costs_dict = Dict{Any, Float64}()
     sizehint!(costs_dict, length(coalitions))
-    sizehint!(cvar_dict, length(coalitions))
+    #sizehint!(cvar_dict, length(coalitions))
     sizehint!(total_costs_dict, length(coalitions))
 
     for coalition in coalitions
@@ -424,16 +435,16 @@ function calculate_total_costs_specific(systemData, coalitions, stochasticData, 
             costs_dict[coalition] = sum(imbalance_costs)
         end
         # Calculate CVaR using all imbalance costs (including negative)
-        cvar_costs = copy(imbalance_costs)
-        partialsort!(cvar_costs, 1:var_index)
+        #cvar_costs = copy(imbalance_costs)
+        #partialsort!(cvar_costs, 1:var_index)
         #cvar_value = mean(cvar_costs[1:var_index])
-        tail_cost = sum(cvar_costs[1:var_index])
+        #tail_cost = sum(cvar_costs[1:var_index])
         #cvar_dict[coalition] = cvar_value
-        cvar_dict[coalition] = tail_cost
+        #cvar_dict[coalition] = tail_cost
 
         # Calculate total costs as weighted sum of regular costs and CVaR
-        total_cost = cost_weight * sum(imbalance_costs) + cvar_weight * tail_cost
-        total_costs_dict[coalition] = total_cost
+        #total_cost = cost_weight * sum(imbalance_costs) + cvar_weight * tail_cost
+        #total_costs_dict[coalition] = total_cost
     end
     return total_costs_dict, costs_dict, cvar_dict, imbalancesDict
 end
