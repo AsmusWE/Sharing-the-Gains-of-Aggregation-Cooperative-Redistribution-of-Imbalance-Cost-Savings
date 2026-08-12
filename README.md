@@ -6,9 +6,9 @@ Code accompanying Asmus Winther Eriksen's DTU master's thesis, *"Sharing the Gai
 
 As renewable penetration increases, Balance Responsible Parties (BRPs) face growing uncertainty in matching supply and demand. While portfolio aggregation measurably reduces both imbalance costs and risk, it also obscures each consumer or producer's true contribution, particularly as TSOs in the Nordic countries move towards partially asymmetric pricing in the full-cost balancing imbalance settlement scheme.
 
-This thesis develops a cooperative game-theoretic framework to allocate ex-post imbalance costs among prosumers in a 22-client portfolio. Only the day-ahead and imbalance markets are considered, and an asymmetric two-price imbalance settlement is used to approximate full-cost balancing. Cost allocation is modeled as a transferable-utility game. Multiple core-selection mechanisms are implemented: the Shapley Value, VCG, the Gately Point, Nucleolus, and two bespoke mechanisms: Uniform Price and Reduced Cost. These are compared against a flat rate allocation where the BRP makes no effort to differentiate between clients.
+This thesis develops a cooperative game-theoretic framework to allocate ex-post imbalance costs among prosumers in a 22-client portfolio. Only the day-ahead and imbalance markets are considered, and an asymmetric two-price imbalance settlement is used to approximate full-cost balancing. Cost allocation is modeled as a transferable-utility game. Multiple core-selection mechanisms are implemented: the Shapley Value, MCC (Marginal Cost Contribution), the Gately Point, Nucleolus, and two bespoke mechanisms: Uniform Price and Reduced Cost. These are compared against a flat rate allocation where the BRP makes no effort to differentiate between clients.
 
-Each mechanism is assessed for its computational tractability, fairness, budget balance, and incentive compatibility. The Shapley Value and Nucleolus are found impractical for these problems, as they are too computationally taxing to scale for large portfolios. Likewise, VCG is impractical because of its lack of budget balance. A modified VCG mechanism that ensures budget balance for this problem is proposed; however, it results in unstable allocations for some games.
+Each mechanism is assessed for its computational tractability, fairness, budget balance, and incentive compatibility. The Shapley Value and Nucleolus are found impractical for these problems, as they are too computationally taxing to scale for large portfolios. Likewise, MCC is impractical because of its lack of budget balance. A modified MCC mechanism that ensures budget balance for this problem is proposed; however, it results in unstable allocations for some games.
 
 Among the classical core selection mechanisms, the Gately Point proves to be the only practical mechanism, based on computational complexity, stability, and budget balance. The Reduced Cost and Uniform Price mechanisms prove practical and fair, and can be considered as simpler alternatives to the Gately Point.
 
@@ -23,7 +23,7 @@ The application of cooperative game theory to BRP pricing is found to be an impo
 │   ├── Data_import.jl        # Load and preprocess demand/PV/price data
 │   ├── Scenario_creation.jl  # Demand and imbalance-spread scenario generation
 │   ├── Imbalance_functions.jl        # Bid optimization and cost/imbalance calculation
-│   ├── Game_theoretic_functions.jl   # Allocation mechanisms (Shapley, VCG, Gately, ...)
+│   ├── Game_theoretic_functions.jl   # Allocation mechanisms (Shapley, MCC, Gately, ...)
 │   ├── Plotting_functions.jl # Result visualization
 │   └── Types.jl              # Shared data structures
 ├── scripts/                  # Entry-point scripts
@@ -68,8 +68,8 @@ Optimization uses [HiGHS](https://highs.dev/), an open-source solver — no comm
 Implemented in `src/Game_theoretic_functions.jl` and selectable via the `allocations` list in `scripts/Imbalance_main.jl` (see `ALLOCATION_PRESETS` in `scripts/common_setup.jl` for named presets):
 
 - `shapley` — Shapley value
-- `VCG` — Vickrey–Clarke–Groves mechanism
-- `VCG_budget_balanced` — budget-balanced VCG variant
+- `MCC` — Marginal Cost Contribution mechanism
+- `MCC_budget_balanced` — budget-balanced MCC variant
 - `gately` / `gately_interval` — Gately point (single value / 15-minute interval)
 - `nucleolus` — lexicographically minimal-excess solution
 - `full_cost` — uniform marginal-price allocation
@@ -77,4 +77,4 @@ Implemented in `src/Game_theoretic_functions.jl` and selectable via the `allocat
 - `flat_rate` — no differentiation between clients (baseline)
 - `scaled` — scaled allocation
 
-The default preset (`ALLOCATION_PRESETS[:default]`) is `["shapley", "VCG", "gately_interval", "full_cost", "flat_rate"]`; `nucleolus` and `shapley` become computationally intractable above roughly 12 and 19 clients respectively, since both require evaluating every coalition.
+The default preset (`ALLOCATION_PRESETS[:default]`) is `["shapley", "MCC", "gately_interval", "full_cost", "flat_rate"]`; `nucleolus` and `shapley` become computationally intractable above roughly 12 and 19 clients respectively, since both require evaluating every coalition.

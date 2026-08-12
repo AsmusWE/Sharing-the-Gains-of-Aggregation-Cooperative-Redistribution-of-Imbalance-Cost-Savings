@@ -8,8 +8,8 @@ function calculate_allocations(
     allocation_costs = Dict{String, Any}()
     allocation_map = Dict(
         "shapley" => () -> shapley_value(clients, coalitionCosts),
-        "VCG" => () -> simple_VCG(clients, coalitionCosts),
-        "VCG_budget_balanced" => () -> VCG_BB(clients, coalitionCosts),
+        "MCC" => () -> simple_MCC(clients, coalitionCosts),
+        "MCC_budget_balanced" => () -> MCC_BB(clients, coalitionCosts),
         "gately" => () -> deepcopy(gately_point(clients, coalitionCosts)),
         "gately_interval" => () -> deepcopy(gately_point_interval(clients, imbalancesDict, systemData)),
         "full_cost" => () -> deepcopy(full_cost_transfer(clients, imbalancesDict, systemData)),
@@ -24,8 +24,8 @@ function calculate_allocations(
     )
     allocation_print_map = Dict(
         "shapley" => "Shapley calculation time:",
-        "VCG" => "VCG calculation time:",
-        "VCG_budget_balanced" => "VCG budget balanced calculation time:",
+        "MCC" => "MCC calculation time:",
+        "MCC_budget_balanced" => "MCC budget balanced calculation time:",
         "gately" => "Gately calculation time:",
         #"gately_daily" => "Gately calculation time, daily:",
         "gately_interval" => "Gately calculation time, interval:",
@@ -123,37 +123,37 @@ function check_stability(payoffs, coalition_values, clients)
     return max_instability
 end
 
-function simple_VCG(clients, coalitionCosts)
-    # This function calculates the VCG value for each client in the grand coalition
+function simple_MCC(clients, coalitionCosts)
+    # This function calculates the MCC (marginal cost contribution) value for each client in the grand coalition
     grand_coalition = vec(clients)
     grand_coalition_cost = coalitionCosts[grand_coalition]
     utilities = Dict{String, Float64}()
     for client in clients
         coalition_wo_client = filter(x -> x != client, grand_coalition)
         coalition_value_wo_client = coalitionCosts[coalition_wo_client]
-        # Calculate the VCG value for the client
-        VCG_value = (grand_coalition_cost - coalition_value_wo_client)
-        # Store the VCG value in a dictionary
-        utilities[client] = VCG_value
+        # Calculate the MCC value for the client
+        MCC_value = (grand_coalition_cost - coalition_value_wo_client)
+        # Store the MCC value in a dictionary
+        utilities[client] = MCC_value
     end
     return utilities
 end
 
-function VCG_BB(clients, coalitionCosts)
-    # This function calculates the VCG value for each client in the grand coalition
+function MCC_BB(clients, coalitionCosts)
+    # This function calculates the MCC value for each client in the grand coalition
     # Handles budget balanced case by optimizing
-    vcg_payments = simple_VCG(clients, coalitionCosts)
-    if sum(values(vcg_payments)) == coalitionCosts[clients]
-        # If the VCG payments are budget balanced, return them as is
-        return vcg_payments
+    mcc_payments = simple_MCC(clients, coalitionCosts)
+    if sum(values(mcc_payments)) == coalitionCosts[clients]
+        # If the MCC payments are budget balanced, return them as is
+        return mcc_payments
     end
     model = Model(HiGHS.Optimizer)
     set_silent(model)
 
     @variable(model, payment[clients])
-    
-    # Objective is to minimize the squared relative difference from VCG payments
-    @objective(model, Min, sum(((vcg_payments[client] - payment[client])/(vcg_payments[client]))^2 for client in clients))
+
+    # Objective is to minimize the squared relative difference from MCC payments
+    @objective(model, Min, sum(((mcc_payments[client] - payment[client])/(mcc_payments[client]))^2 for client in clients))
 
     # Constraint to ensure budget balance
     @constraint(model, sum(payment) == coalitionCosts[clients])
@@ -164,12 +164,12 @@ function VCG_BB(clients, coalitionCosts)
 
     # Constraint to ensure no one pays less than their utopian allocation
     @constraint(model, [client in clients],
-                payment[client] >= vcg_payments[client]) 
+                payment[client] >= mcc_payments[client])
 
     optimize!(model)
-    
+
     if termination_status(model) != MOI.OPTIMAL
-        error("VCG optimization failed: $(termination_status(model))")
+        error("MCC optimization failed: $(termination_status(model))")
     end
 
     optimized_payments = Dict{String, Float64}()
@@ -178,35 +178,6 @@ function VCG_BB(clients, coalitionCosts)
     end
 
     return optimized_payments
-end
-
-function calculate_payments(clients, intervalImbalances, upreg_price, downreg_price)
-    # This function calculates the payments for each client in the grand coalition
-    # Used for VCG calculation
-    T = length(intervalImbalances[[clients[1]]])
-
-    # Only calculate payments for the grand coalition
-    coalition = clients
-    member_payments = Dict()
-    for m in coalition
-        member_payments[m] = zeros(Float64, T)
-        for t in 1:T
-            total_pos = sum(max(intervalImbalances[[i]][t], 0) for i in coalition)
-            total_neg = sum(-min(intervalImbalances[[i]][t], 0) for i in coalition)
-            member_imb = intervalImbalances[[m]][t]
-            hour_cost = abs(sum(intervalImbalances[[i]][t] for i in coalition))
-            if member_imb > 0 && total_pos > total_neg
-                hour_cost = hour_cost * downreg_price
-                member_payments[m][t] = hour_cost * (member_imb / total_pos)
-            elseif member_imb < 0 && total_neg > total_pos
-                hour_cost = hour_cost * upreg_price
-                member_payments[m][t] = hour_cost * (abs(member_imb) / total_neg)
-            else
-                member_payments[m][t] = 0
-            end
-        end
-    end
-    return member_payments
 end
 
 function gately_point(clients, imbalance_costs)

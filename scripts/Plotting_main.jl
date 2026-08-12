@@ -6,8 +6,8 @@ using DataFrames, CSV, Dates
 
 plottedAllocations = [
     "shapley",
-    #"VCG",
-    #"VCG_budget_balanced",
+    #"MCC",
+    #"MCC_budget_balanced",
     "gately",
     #"gately_interval",
     "full_cost", # Uniform price for cost
@@ -25,8 +25,8 @@ Green = RGB(136/255, 216/255, 176/255)
 
 allocation_labels = Dict(
     "shapley" => ("Shapley", LightGreen),
-    "VCG" => ("VCG", :black),
-    "VCG_budget_balanced" => ("VCG Budget Balanced", :orange),
+    "MCC" => ("MCC", :black),
+    "MCC_budget_balanced" => ("MCC Budget Balanced", :orange),
     "gately" => ("Gately Point", Sand),
     "gately_interval" => ("Gately 15Min interval", :lightgrey),
     "full_cost" => ("Marginal Price", Orange),
