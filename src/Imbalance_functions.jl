@@ -248,6 +248,12 @@ function set_period!(demandData::DataFrame, startDay, days)
     intervals = days * intervals_per_day
     start_interval = findfirst(x -> x >= startDay, demandData[!, "HourUTC_datetime"])
     
+    # Check if start date was found in the data
+    if start_interval === nothing
+        data_range = "$(demandData[1, "HourUTC_datetime"]) to $(demandData[end, "HourUTC_datetime"])"
+        error("Start date $startDay not found in available data range: $data_range")
+    end
+    
     try
         end_interval = start_interval + intervals - 1
         return demandData[start_interval:end_interval, :]

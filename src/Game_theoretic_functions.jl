@@ -551,3 +551,16 @@ function scaled_allocation(clients, coalitionCosts)
     
     return allocation
 end
+
+function equal_allocation(clients, coalitionCosts)
+    # This function splits the coalition cost evenly across all clients
+    # Budget-balanced by construction: sum(values) == coalitionCosts[clients]
+    allocation = Dict{String, Float64}()
+    total_cost = coalitionCosts[clients]
+    n = length(clients)
+    share = total_cost / n
+    for client in clients
+        allocation[client] = share
+    end
+    return allocation
+end
