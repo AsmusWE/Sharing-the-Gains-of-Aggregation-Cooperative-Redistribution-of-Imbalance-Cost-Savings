@@ -15,14 +15,14 @@ Random.seed!(1) # Set seed for reproducibility
 # 1. Data Loading & Setup
 # =========================
 # Choose which calculations to run
-FileName = "17ClientWeekly.jls"
+FileName = "19ClientWeekly.jls"
 
 allocations = ALLOCATION_PRESETS[:default]
 
 systemData, clients, demandData = load_data()
 firstHour = minimum(systemData["price_prod_demand_df"][!, :HourUTC_datetime])
 lastHour = maximum(systemData["price_prod_demand_df"][!, :HourUTC_datetime])
-clients = filter(x -> !(x in CLIENT_EXCLUSION_PRESETS[:drop_smallest_2]), clients)
+clients = filter(x -> !(x in CLIENT_EXCLUSION_PRESETS[:drop_smallest_3]), clients)
 
 start_hour = DateTime(2024, 01, 01, 00, 0, 0)
 #sim_days = Int(floor((lastHour - start_hour) / Dates.Day(1))) # Calculate number of days from start_hour to lastHour
@@ -65,9 +65,16 @@ demandData = set_period!(demandData, start_hour, sim_days)
 coalitions = collect(combinations(clients)) # Full set of coalitions for simple plot
 println("Calculating costs for simple plot...")
 
+# Only retain coalitions that are needed for imbalance calculations (singletons, full coalition, and all coalitions missing one client)
+neededImbalanceCoalitions = Set(vcat(
+    [[c] for c in clients],
+    [clients],
+    [filter(x -> x != c, clients) for c in clients],
+))
+
 # Initialize accumulation dictionaries for weekly costs
 accumulated_costsDict = Dict(coalition => 0.0 for coalition in coalitions)
-accumulated_imbalancesDict = Dict(coalition => Float64[] for coalition in coalitions)
+accumulated_imbalancesDict = Dict(coalition => Float64[] for coalition in coalitions if coalition in neededImbalanceCoalitions)
 
 # Optimize week by week (7 days at a time)
 week_length = 30
@@ -96,7 +103,9 @@ for week in 1:num_weeks
     # Accumulate weekly results
     for coalition in coalitions
         accumulated_costsDict[coalition] += weeklyCostsDict[coalition]
-        append!(accumulated_imbalancesDict[coalition], weeklyImbalancesDict[coalition])
+        if coalition in neededImbalanceCoalitions
+            append!(accumulated_imbalancesDict[coalition], weeklyImbalancesDict[coalition])
+        end
     end
 end
 
