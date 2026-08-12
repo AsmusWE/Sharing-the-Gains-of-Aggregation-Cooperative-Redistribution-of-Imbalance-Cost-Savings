@@ -8,6 +8,7 @@ plottedAllocations = [
     "shapley",
     #"MCC",
     #"MCC_budget_balanced",
+    #"VCG",
     "gately",
     #"gately_interval",
     "full_cost", # Uniform price for cost
@@ -27,6 +28,7 @@ allocation_labels = Dict(
     "shapley" => ("Shapley", LightGreen),
     "MCC" => ("MCC", :black),
     "MCC_budget_balanced" => ("MCC Budget Balanced", :orange),
+    "VCG" => ("VCG", :purple),
     "gately" => ("Gately Point", Sand),
     "gately_interval" => ("Gately 15Min interval", :lightgrey),
     "full_cost" => ("Marginal Price", Orange),

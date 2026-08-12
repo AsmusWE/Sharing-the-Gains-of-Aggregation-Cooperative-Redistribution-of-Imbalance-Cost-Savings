@@ -52,7 +52,7 @@ function plot_results(
     client_name_mapping = create_alphabetic_client_mapping(clients)
     plotKeysAlphabetic = [client_name_mapping[client] for client in plotKeys]
 
-    skip_allocations = ["MCC", "nucleolus"]
+    skip_allocations = ["MCC", "VCG", "nucleolus"]
     # Filter allocations to exclude skipped allocations
     allocations = filter(x -> x in allocations && !(x in skip_allocations), keys(allocation_costs))
 
@@ -329,6 +329,7 @@ function plot_cost_difference(allocation_costs, clients, systemData)
     # Flat_rate is excluded from this comparison
     filtered_allocations = filter(x -> x != "flat_rate", keys(allocation_costs))
     filtered_allocations = filter(x -> x != "MCC" , filtered_allocations)
+    filtered_allocations = filter(x -> x != "VCG" , filtered_allocations)
     # Convert to vector for indexing
     filtered_allocations = collect(filtered_allocations)
     

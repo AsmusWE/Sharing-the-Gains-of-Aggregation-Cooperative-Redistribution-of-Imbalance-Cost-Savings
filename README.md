@@ -70,6 +70,7 @@ Implemented in `src/Game_theoretic_functions.jl` and selectable via the `allocat
 - `shapley` — Shapley value
 - `MCC` — Marginal Cost Contribution mechanism
 - `MCC_budget_balanced` — budget-balanced MCC variant
+- `VCG` — Vickrey-Clarke-Groves mechanism (externality on the rest of the coalition)
 - `gately` / `gately_interval` — Gately point (single value / 15-minute interval)
 - `nucleolus` — lexicographically minimal-excess solution
 - `full_cost` — uniform marginal-price allocation
@@ -77,4 +78,4 @@ Implemented in `src/Game_theoretic_functions.jl` and selectable via the `allocat
 - `flat_rate` — no differentiation between clients (baseline)
 - `scaled` — scaled allocation
 
-The default preset (`ALLOCATION_PRESETS[:default]`) is `["shapley", "MCC", "gately_interval", "full_cost", "flat_rate"]`; `nucleolus` and `shapley` become computationally intractable above roughly 12 and 19 clients respectively, since both require evaluating every coalition.
+The default preset (`ALLOCATION_PRESETS[:default]`) is `["shapley", "MCC", "VCG", "gately_interval", "full_cost", "flat_rate"]`; `nucleolus` and `shapley` become computationally intractable above roughly 12 and 19 clients respectively, since both require evaluating every coalition.

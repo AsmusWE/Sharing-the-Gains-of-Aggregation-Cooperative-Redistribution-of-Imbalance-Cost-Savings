@@ -10,6 +10,7 @@ function calculate_allocations(
         "shapley" => () -> shapley_value(clients, coalitionCosts),
         "MCC" => () -> simple_MCC(clients, coalitionCosts),
         "MCC_budget_balanced" => () -> MCC_BB(clients, coalitionCosts),
+        "VCG" => () -> deepcopy(simple_VCG(clients, coalitionCosts, imbalancesDict, systemData)),
         "gately" => () -> deepcopy(gately_point(clients, coalitionCosts)),
         "gately_interval" => () -> deepcopy(gately_point_interval(clients, imbalancesDict, systemData)),
         "full_cost" => () -> deepcopy(full_cost_transfer(clients, imbalancesDict, systemData)),
@@ -26,6 +27,7 @@ function calculate_allocations(
         "shapley" => "Shapley calculation time:",
         "MCC" => "MCC calculation time:",
         "MCC_budget_balanced" => "MCC budget balanced calculation time:",
+        "VCG" => "VCG calculation time:",
         "gately" => "Gately calculation time:",
         #"gately_daily" => "Gately calculation time, daily:",
         "gately_interval" => "Gately calculation time, interval:",
@@ -280,6 +282,32 @@ function gately_point_interval(clients, imbalancesDict, systemData)
     end
     
     return gately_distribution
+end
+
+function simple_VCG(clients, coalitionCosts, imbalancesDict, systemData)
+    # Implements the VCG mechanism: charges each client the externality its presence
+    # imposes on the rest of the grand coalition, i.e. what N\{i} would pay if priced at
+    # the grand coalition's own two-price spread, minus what N\{i} actually pays alone.
+    grand_coalition = vec(clients)
+    imbalanceSpread = systemData["price_prod_demand_df"][!, "ImbalanceSpreadEUR"]
+    dominantDirection = systemData["price_prod_demand_df"][!, "DominatingDirection"]
+    grand_imbalance = imbalancesDict[grand_coalition]
+    T = length(grand_imbalance)
+
+    vcg_values = Dict{String, Float64}()
+    for client in clients
+        coalition_wo_client = filter(x -> x != client, grand_coalition)
+        imbalance_wo_client = imbalancesDict[coalition_wo_client]
+        externality = 0.0
+        for t in 1:T
+            if grand_imbalance[t] * dominantDirection[t] < 0
+                # Grand coalition harms the system this hour: price N\{i}'s imbalance at the grand-coalition spread
+                externality += imbalance_wo_client[t] * imbalanceSpread[t]
+            end
+        end
+        vcg_values[client] = externality - coalitionCosts[coalition_wo_client]
+    end
+    return vcg_values
 end
 
 function full_cost_transfer(clients, imbalanceDict, systemData)
