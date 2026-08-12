@@ -1,5 +1,5 @@
-include("../Data_import.jl")
-include("../imbalance_functions.jl")
+include("../../src/Data_import.jl")
+include("../../src/Imbalance_functions.jl")
 using Plots
 
 systemData, clients, demandData = load_data()

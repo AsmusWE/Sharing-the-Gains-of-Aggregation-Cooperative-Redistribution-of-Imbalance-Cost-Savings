@@ -1,1 +1,29 @@
-Codes/Thumbs.db
+# --- Data ---
+# NDA-covered client data; not distributable, see data/sources.txt.
+data/private/
+
+# --- Simulation outputs ---
+# Serialized run outputs and generated plots are reproducible from the scripts,
+# so only one example figure is tracked as a reference.
+*.jls
+*.svg
+
+results/*
+!results/figures/
+results/figures/*
+!results/figures/ClientPVCoverageDemand.svg
+
+# Legacy pre-restructure output directory, kept only for two large local cache
+# files that are not tracked or moved as part of the repository cleanup.
+Codes/Results/
+
+# --- Julia environment ---
+# Manifest.toml is intentionally tracked: this is a research-reproducibility
+# repo, not a registered package, so pinning exact resolved versions is the point.
+*.jl.cov
+*.jl.mem
+
+# --- OS ---
+Thumbs.db
+.DS_Store
+desktop.ini

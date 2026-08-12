@@ -1,4 +1,4 @@
-using Plots, Serialization, CSV, DataFrames#, StatsPlots
+using Plots, Serialization, CSV, DataFrames
 include("Game_theoretic_functions.jl")
 
 function create_alphabetic_client_mapping(clients)
@@ -322,58 +322,6 @@ function plot_results(
         p_mixed = plot_socialised_vs_individualised(mixedAllocationDF, clients, dayData; negativeExcessStep=negativeExcessStep)
         display(p_mixed)
     end
-end
-
-function plot_variance(
-    allocations,
-    daily_cost,
-    singletonCosts,
-    plot_client,
-    sim_days,
-    allocation_labels;
-    outliers = true
-)
-    # Allocations that should not be plotted
-    skip_allocations = ["VCG", "nucleolus", "flat_rate", "shapley"]
-    
-    # Filter allocations for x-axis labels
-    filtered_allocations = [a for a in allocations if haskey(allocation_labels, a) && !(a in skip_allocations)]
-    
-    p_variance = plot(
-        title="Daily relative costs $plot_client",
-        xlabel="Allocation",
-        ylabel="Relative costs [%]",
-        xticks=(1:length(filtered_allocations), [allocation_labels[a][1] for a in filtered_allocations]),
-        legend = :bottomright,
-        xrotation=30,
-        tickfont=font(12),
-        guidefont=font(14)
-    )
-    
-    plot_index = 1
-    weighted_mean_labeled = false
-    median_labeled = false
-    for alloc in filtered_allocations
-        label, color = allocation_labels[alloc]
-
-        plotVals = daily_cost[(plot_client, alloc)]./singletonCosts[plot_client] * 100  # Convert to percentage
-        boxplot!(fill(plot_index, sim_days), plotVals; color=color, markerstrokecolor=:black, label=false, outliers=outliers)
-        mean_val_weighted = sum(daily_cost[(plot_client, alloc)])/sum(singletonCosts[plot_client]) * 100  # Convert to percentage
-        
-        # Add median to legend (only once)
-        if !median_labeled
-            # Create a dummy line to represent the median in the legend
-            plot!(Float64[], Float64[], color=:black, linewidth=2, label="Median")
-            median_labeled = true
-        end
-        
-        # Add a blue line for the weighted mean
-        weighted_mean_label = weighted_mean_labeled ? false : "Weighted Mean"
-        plot!([plot_index-0.4, plot_index+0.4], [mean_val_weighted, mean_val_weighted], color=:blue, linewidth=2, label=weighted_mean_label)
-        weighted_mean_labeled = true
-        plot_index += 1
-    end
-    display(p_variance)
 end
 
 function plot_cost_difference(allocation_costs, clients, systemData)

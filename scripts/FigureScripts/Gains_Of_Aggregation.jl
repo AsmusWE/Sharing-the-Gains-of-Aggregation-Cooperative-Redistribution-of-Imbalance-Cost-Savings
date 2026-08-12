@@ -1,28 +1,13 @@
 
 
 # --- Project Modules ---
-include("../Data_import.jl")
-include("../Scenario_creation.jl")
-include("../imbalance_functions.jl")
-include("../Game_theoretic_functions.jl")
-include("../Plotting_functions.jl")
+include("../common_setup.jl")
 
 # --- External Packages ---
-using Plots, Dates, Random, Combinatorics, StatsPlots, Serialization, Dates
+using Plots, Dates, Combinatorics, Serialization
 GC.gc() # Run garbage collection to free memory, useful for repeat runs
 
-struct SimplePlotData
-    allocations::Vector{String}
-    systemData::Dict{String, Any}
-    allocationCosts::Dict{String, Any}
-    coalitionCosts::Dict{Any, Any}
-    imbalancesDict::Dict{Any, Any}
-    clients::Vector{String}
-    start_hour::DateTime
-    sim_days::Int
-end
-
-plotData = deserialize("C:\\Users\\s200583\\Downloads\\17ClientsMonthly.jls")
+plotData = deserialize(joinpath(@__DIR__, "..", "..", "results", "cache", "17ClientWeekly.jls"))
 
 # =========================
 # 1. Load data from serialized file

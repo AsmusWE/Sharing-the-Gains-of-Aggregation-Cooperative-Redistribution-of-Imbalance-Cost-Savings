@@ -1,18 +1,8 @@
-include("Plotting_functions.jl")
-include("Imbalance_functions.jl")
+include("../src/Plotting_functions.jl")
+include("../src/Imbalance_functions.jl")
+include("../src/Types.jl")
 
 using DataFrames, CSV, Dates
-
-struct SimplePlotData
-    allocations::Vector{String}
-    systemData::Dict{String, Any}
-    allocationCosts::Dict{String, Any}
-    coalitionCosts::Dict{Any, Any}
-    imbalancesDict::Dict{Any, Any}
-    clients::Vector{String}
-    start_hour::DateTime
-    sim_days::Int
-end
 
 plottedAllocations = [
     "shapley",
@@ -24,7 +14,6 @@ plottedAllocations = [
     #"reduced_cost",
     #"nucleolus",
     "flat_rate",
-    #"cost_based" # Uniform price for CVaR,
     #"scaled"
 ]
 
@@ -43,14 +32,10 @@ allocation_labels = Dict(
     "full_cost" => ("Marginal Price", Orange),
     "reduced_cost" => ("Asymmetric Price", :blue),
     "nucleolus" => ("Nucleolus", :green),
-    "cost_based" => ("Marginal Price", :pink),
     "flat_rate" => ("Flat Rate", Red)
 )
 
-plotData = deserialize("C:\\Users\\s200583\\Downloads\\17ClientsNew.jls")
-#plotData = deserialize("Results/simple_plot_perfectPV_scenDemand.jls")
-#plotData = deserialize("Results/simple_plot_perfectPV_noiseDemand.jls")
-#plotData = deserialize("Results/CVaR_scenPV_scenDemand.jls")
+plotData = deserialize(joinpath(@__DIR__, "..", "results", "cache", "17ClientWeekly.jls"))
 
 WMAPE = Dict{String, Float64}()
 for client in plotData.clients

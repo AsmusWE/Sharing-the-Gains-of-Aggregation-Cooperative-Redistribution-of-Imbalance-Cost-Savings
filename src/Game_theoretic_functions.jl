@@ -1,21 +1,16 @@
-using Combinatorics, HiGHS, JuMP, Gurobi#, NLsolve,
-# Initializing the Gurobi environment
-# This is necessary to surpress some of the Gurobi output
-const GUROBI_ENV = Gurobi.Env()
+using Combinatorics, HiGHS, JuMP#, NLsolve,
 
 
 function calculate_allocations(
-    allocations, clients, coalitionCosts, imbalancesDict,systemData; printing = true, return_time = false, alpha = 0.05
+    allocations, clients, coalitionCosts, imbalancesDict,systemData; printing = true, return_time = false
     )
     allocation_times = Dict{String, Float64}()
     allocation_costs = Dict{String, Any}()
     allocation_map = Dict(
         "shapley" => () -> shapley_value(clients, coalitionCosts),
-        #"VCG" => () -> VCG_tax(clients, coalitionCVaR, intervalImbalances, systemData; budget_balance=false),
         "VCG" => () -> simple_VCG(clients, coalitionCosts),
         "VCG_budget_balanced" => () -> VCG_BB(clients, coalitionCosts),
         "gately" => () -> deepcopy(gately_point(clients, coalitionCosts)),
-        #"gately_daily" => () -> deepcopy(gately_point_daily(clients, intervalImbalances, systemData)),
         "gately_interval" => () -> deepcopy(gately_point_interval(clients, imbalancesDict, systemData)),
         "full_cost" => () -> deepcopy(full_cost_transfer(clients, imbalancesDict, systemData)),
         "reduced_cost" => () -> deepcopy(reduced_cost(clients, imbalancesDict, systemData)),
@@ -24,9 +19,7 @@ function calculate_allocations(
             deepcopy(nucleolus_values)
         end,
         "equal_share" => () -> deepcopy(equal_allocation(clients, coalitionCosts)),
-        #"flat_rate" => () -> deepcopy(flat_rate_allocation(clients, coalitionCosts, demandData)),
         "flat_rate" => () -> deepcopy(flat_rate_allocation(clients, coalitionCosts, systemData)),
-        "cost_based" => () -> deepcopy(cost_based_allocation(clients, imbalancesDict, systemData, alpha)),
         "scaled" => () -> deepcopy(scaled_allocation(clients, coalitionCosts))
     )
     allocation_print_map = Dict(
@@ -41,7 +34,6 @@ function calculate_allocations(
         "nucleolus" => "Nucleolus calculation time:",
         "equal_share" => "Equal share calculation time:",
         "flat_rate" => "Flat rate calculation time:",
-        "cost_based" => "Cost based allocation calculation time:",
         "scaled" => "Scaled allocation calculation time:"
     )
     for allocation in allocations
@@ -63,107 +55,6 @@ function calculate_allocations(
     return allocation_costs
     
 end
-
-function allocation_variance(
-    allocations::Vector{String}, 
-    clients::Vector{String}, 
-    systemData, 
-    stochasticData,
-    demandData,
-    start_hour, 
-    sim_days::Int
-)
-    # Calculate imbalances once for the entire period, then slice by day for allocations
-    # This ensures consistency with the fullPlotSimple approach
-    
-    intervals_per_day = 24 # 15-min intervals per day
-    
-    # Use sparse coalitions instead of all combinations for better performance
-    coalitions = sparse_coalitions(clients)
-    
-    # Calculate imbalances for the entire period once
-    println("Calculating imbalances for entire period...")
-    totalCoalitionCosts, totalImbalancesDict = calculate_costs_specific(systemData, coalitions, stochasticData, sim_days)
-    # Initialize data structures
-    allocation_costs_daily = Dict{Tuple{String, String}, Vector{Float64}}()
-    for client in clients
-        for allocation in allocations
-            allocation_costs_daily[(client, allocation)] = Float64[]
-        end
-    end
-    allocation_costs = Dict(allocation => Dict(client => 0.0 for client in clients) for allocation in allocations)
-    coalitionCosts = Dict(coalition => 0.0 for coalition in coalitions)
-    intervalImbalances = Dict{Vector{String}, Vector{Float64}}()
-    for client in clients
-        intervalImbalances[[client]] = Float64[]
-    end
-    singletonCostsDaily = Dict(client => Float64[] for client in clients)
-
-    for day in 1:sim_days
-        # Calculate day indices for slicing
-        day_start_idx = (day - 1) * intervals_per_day + 1
-        day_end_idx = day * intervals_per_day
-        
-        # Create daily system data by slicing the already-trimmed systemData
-        tempSystemData = deepcopy(systemData)
-        tempSystemData["price_prod_demand_df"] = systemData["price_prod_demand_df"][day_start_idx:day_end_idx, :]
-        
-        # Slice imbalances for this day from the total calculated imbalances
-        imbalancesDict_day = Dict{Vector{String}, Vector{Float64}}()
-        coalitionCosts_day = Dict{Vector{String}, Float64}()
-        
-        # Get pricing data for this day
-        imbalance_spread = tempSystemData["price_prod_demand_df"][!, "ImbalanceSpreadEUR"]
-        dominantDirection = tempSystemData["price_prod_demand_df"][!, "DominatingDirection"]
-        abs_spread = abs.(imbalance_spread)
-        
-        for coalition in coalitions
-            # Slice the imbalances for this day
-            day_imbalances = totalImbalancesDict[coalition][day_start_idx:day_end_idx]
-            imbalancesDict_day[coalition] = day_imbalances
-            
-            # Calculate costs for this day using the same logic as calculate_costs_specific
-            total_cost = 0.0
-            for j in eachindex(dominantDirection)
-                imbalance_with_dir = day_imbalances[j] * dominantDirection[j]
-                if imbalance_with_dir > 0
-                    total_cost += imbalance_with_dir * abs_spread[j]
-                end
-            end
-            coalitionCosts_day[coalition] = total_cost
-        end
-
-        # Calculate allocations for this day
-        daily_allocations = calculate_allocations(
-            allocations, clients, coalitionCosts_day, imbalancesDict_day, tempSystemData; printing = false
-        )
-        
-        # Store singleton costs
-        for client in clients
-            push!(singletonCostsDaily[client], coalitionCosts_day[[client]])
-        end
-        
-        # Extract allocations and add them to total client allocation
-        for allocation in allocations
-            alloc = daily_allocations[allocation]
-            for client in clients
-                allocation_costs[allocation][client] += alloc[client]
-                # Store daily allocation
-                push!(allocation_costs_daily[(client, allocation)], alloc[client])
-            end
-        end
-        
-        # Accumulate total imbalance costs and interval imbalance costs
-        for (coalition, imbalanceCost) in coalitionCosts_day
-            coalitionCosts[coalition] += imbalanceCost
-        end
-        for client in clients
-            append!(intervalImbalances[[client]], imbalancesDict_day[[client]])
-        end
-    end
-    return allocation_costs_daily, allocation_costs, coalitionCosts, intervalImbalances, singletonCostsDaily
-end
-
 
 function shapley_value(clients, imbalances)
     # This function calculates the Shapley value for each client in the grand coalition
@@ -235,13 +126,13 @@ end
 function simple_VCG(clients, coalitionCosts)
     # This function calculates the VCG value for each client in the grand coalition
     grand_coalition = vec(clients)
-    grand_coalition_CVaR = coalitionCosts[grand_coalition]
+    grand_coalition_cost = coalitionCosts[grand_coalition]
     utilities = Dict{String, Float64}()
     for client in clients
         coalition_wo_client = filter(x -> x != client, grand_coalition)
         coalition_value_wo_client = coalitionCosts[coalition_wo_client]
         # Calculate the VCG value for the client
-        VCG_value = (grand_coalition_CVaR - coalition_value_wo_client)
+        VCG_value = (grand_coalition_cost - coalition_value_wo_client)
         # Store the VCG value in a dictionary
         utilities[client] = VCG_value
     end
@@ -256,8 +147,7 @@ function VCG_BB(clients, coalitionCosts)
         # If the VCG payments are budget balanced, return them as is
         return vcg_payments
     end
-    model = Model(()->Gurobi.Optimizer(GUROBI_ENV)) # Use Gurobi for optimization
-    #set_optimizer_attribute(model, "OutputFlag", 0)
+    model = Model(HiGHS.Optimizer)
     set_silent(model)
 
     @variable(model, payment[clients])
@@ -625,51 +515,6 @@ function nucleolus_optimize(n_clients, imbalances_vec, locked_status, locked_val
     else
         error("No optimal solution found in nucleolus optimization")
     end
-end
-
-function cost_based_allocation(clients, intervalImbalances, systemData, alpha)
-    # This function calculates the cost-based allocation for each client in the grand coalition
-    # Allocation is based on the cost clients add in the imbalance tail
-    allocation = Dict{String, Float64}()
-    
-    # Get pricing data - ensure it matches the period of intervalImbalances
-    full_imbalance_spread = systemData["price_prod_demand_df"][!, "ImbalanceSpreadEUR"]
-    grand_coalition_imbalances = intervalImbalances[clients]
-    T = length(grand_coalition_imbalances)
-    
-    # If systemData has been trimmed to match the analysis period, use it directly
-    # Otherwise, we need to assume the periods are aligned (this should be fixed at the caller level)
-    if length(full_imbalance_spread) == T
-        imbalance_spread = full_imbalance_spread
-    else
-        # Fallback: assume we need the first T periods (not ideal, but prevents crashes)
-        # TODO: This should be fixed by passing the correct trimmed systemData
-        @warn "Dimension mismatch detected. Using first $T periods of imbalance spread. This may cause temporal misalignment."
-        imbalance_spread = full_imbalance_spread[1:min(T, length(full_imbalance_spread))]
-        
-        # If we still don't have enough data, pad with the last available value
-        if length(imbalance_spread) < T
-            last_spread = isempty(imbalance_spread) ? 0.0 : imbalance_spread[end]
-            imbalance_spread = vcat(imbalance_spread, fill(last_spread, T - length(imbalance_spread)))
-        end
-    end
-    
-    # Calculate costs (or gains) for each time period
-    grand_coalition_costs = grand_coalition_imbalances .* imbalance_spread
-    # Calculate CVaR tail indices (highest cost periods)
-    n_tail = ceil(Int, T * alpha)  # Number of periods in the CVaR tail
-    
-    # Get indices of the worst (highest cost) periods 
-    cost_indices = partialsortperm(grand_coalition_costs, 1:n_tail, rev=true)
-    # Get costs for the worst periods
-    indiced_spreads = view(imbalance_spread, cost_indices)
-    # Calculate average cost contribution for each client 
-    for client in clients
-        client_imbalances = view(intervalImbalances[[client]], cost_indices)
-        allocation[client] = sum(client_imbalances .* indiced_spreads) / n_tail
-    end
-    
-    return allocation
 end
 
 function flat_rate_allocation(clients, coalitionCosts, systemData)

@@ -3,6 +3,9 @@ using DataFrames
 using TimeZones
 using Dates, Statistics
 
+const DATA_PUBLIC_DIR = joinpath(@__DIR__, "..", "data", "public")
+const DATA_PRIVATE_DIR = joinpath(@__DIR__, "..", "data", "private")
+
 function demand_scaling(demand, clients)
     #Scale demand data - each client gets one scaling factor applied to all timesteps
     for client in clients
@@ -20,18 +23,18 @@ Returns a dictionary with system data and a vector of clients without missing da
 """
 function load_data()
     # --- Load demand data ---
-    demand = CSV.read("Data/consumption_data.csv", DataFrame)
+    demand = CSV.read(joinpath(DATA_PRIVATE_DIR, "consumption_data.csv"), DataFrame)
     demand[!, :HourUTC_datetime] = DateTime.(demand[!, :datetime_cet], DateFormat("yyyy-mm-dd HH:MM:SSz")) .- Hour(1)
     select!(demand, Not(:datetime_cet))
     demand = demand_scaling(demand, names(demand[!, Not([:HourUTC_datetime])]))
 
     # --- Define PV ownership ---
-    pvOwnershipDF = CSV.read("Data/Asset_master_data_asmus.csv", DataFrame; decimal='.')
+    pvOwnershipDF = CSV.read(joinpath(DATA_PRIVATE_DIR, "Asset_master_data_asmus.csv"), DataFrame; decimal='.')
     clientPVOwnership = Dict(String(row.Customer) => row.a_ppa_pct for row in eachrow(pvOwnershipDF))
     # Note: Z is the solar park owner
 
     # --- Load and rescale PV production ---
-    pvProduction = CSV.read("Data/ProductionMunicipalityHour.csv", DataFrame; decimal=',')
+    pvProduction = CSV.read(joinpath(DATA_PUBLIC_DIR, "ProductionMunicipalityHour.csv"), DataFrame; decimal=',')
     pvProduction[!, :HourUTC_datetime] = DateTime.(pvProduction[:, :HourUTC], DateFormat("yyyy-mm-dd HH:MM:SS"))
     # Drop all rows after January 2025 (keep up to 2025-01-31 23:59:59)
     # Done because new solar plants come online in 2025 changing the production profile
@@ -50,7 +53,7 @@ function load_data()
     clients = sort(collect(keys(clientPVOwnership)))
 
     # --- Load and rescale PV forecast ---
-    pv_forecast = CSV.read("Data/Solar_Forecasts_Hour.csv", DataFrame; decimal=',')
+    pv_forecast = CSV.read(joinpath(DATA_PUBLIC_DIR, "Solar_Forecasts_Hour.csv"), DataFrame; decimal=',')
     pv_forecast[!, :HourUTC_datetime] = DateTime.(pv_forecast[:, :HourUTC], DateFormat("yyyy-mm-dd HH:MM:SS"))
     rename!(pv_forecast, :ForecastCurrent => :ForecastCurrent_unscaled)
     old_plant_size = maximum(pv_forecast[:, :ForecastCurrent_unscaled])
@@ -92,7 +95,7 @@ function load_data()
         sort!(demand, :HourUTC_datetime)
         
         # --- Add price data ---
-        priceData = CSV.read("Data/ImbalancePrice.csv", DataFrame, decimal=',')
+        priceData = CSV.read(joinpath(DATA_PUBLIC_DIR, "ImbalancePrice.csv"), DataFrame, decimal=',')
         priceData[!, :HourUTC_datetime] = DateTime.(priceData[:, :TimeUTC], DateFormat("yyyy-mm-dd HH:MM:SS"))
         priceData = select(priceData, [:HourUTC_datetime, :ImbalancePriceEUR, :SpotPriceEUR, :DominatingDirection])
         priceData[!, :ImbalanceSpreadEUR] = priceData[!, :ImbalancePriceEUR] .- priceData[!, :SpotPriceEUR]
@@ -114,7 +117,7 @@ function load_data()
         combinedData = innerjoin(combinedData, priceData, on=:HourUTC_datetime)
     else
         # First load ImbalancePrice.csv data (15-minute resolution) and aggregate to hourly
-        imbalancePriceFromDetail = CSV.read("Data/ImbalancePrice.csv", DataFrame, decimal=',')
+        imbalancePriceFromDetail = CSV.read(joinpath(DATA_PUBLIC_DIR, "ImbalancePrice.csv"), DataFrame, decimal=',')
         imbalancePriceFromDetail[!, :HourUTC_datetime] = DateTime.(imbalancePriceFromDetail[:, :TimeUTC], DateFormat("yyyy-mm-dd HH:MM:SS"))
         # Round down to the hour to aggregate 15-minute data
         imbalancePriceFromDetail[!, :HourUTC_datetime] = floor.(imbalancePriceFromDetail[!, :HourUTC_datetime], Hour(1))
@@ -126,7 +129,7 @@ function load_data()
 
 
         # Then load RegulatingBalancePowerdata.csv (hourly data) to supplement
-        imbalancePriceFromHourly = CSV.read("Data/RegulatingBalancePowerdata.csv", DataFrame, decimal=',')
+        imbalancePriceFromHourly = CSV.read(joinpath(DATA_PUBLIC_DIR, "RegulatingBalancePowerdata.csv"), DataFrame, decimal=',')
         imbalancePriceFromHourly[!, :HourUTC_datetime] = DateTime.(imbalancePriceFromHourly[:, :HourUTC], DateFormat("yyyy-mm-dd HH:MM:SS"))
         imbalancePriceFromHourly = select(imbalancePriceFromHourly, [:HourUTC_datetime, :ImbalancePriceEUR])
         
@@ -136,7 +139,7 @@ function load_data()
         imbalancePriceData = vcat(imbalancePriceFromDetail, additional_imbalance_data, cols=:intersect)
         
         # Load spot price data from Elspotprices.csv
-        spotPriceFromElspot = CSV.read("Data/Elspotprices.csv", DataFrame, decimal=',')
+        spotPriceFromElspot = CSV.read(joinpath(DATA_PUBLIC_DIR, "Elspotprices.csv"), DataFrame, decimal=',')
         spotPriceFromElspot[!, :HourUTC_datetime] = DateTime.(spotPriceFromElspot[:, :HourUTC], DateFormat("yyyy-mm-dd HH:MM:SS"))
         spotPriceFromElspot = select(spotPriceFromElspot, [:HourUTC_datetime, :SpotPriceEUR])
         
