@@ -34,23 +34,23 @@ def plot_pv_coverage(price_prod_demand_df, client_pv_ownership, clients):
     demand_values = [client_total_demand[c] for c in sorted_clients]
     pv_values = [client_pv_coverage[c] * 100 for c in sorted_clients]
 
-    fig, ax1 = plt.subplots()
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 8), sharex=True)
     x = range(1, len(sorted_clients) + 1)
+    
+    # Top subplot: Demand with logarithmic y-axis
     ax1.bar(x, demand_values, color=style.PALETTE["light_green"], label="Demand [MWh]")
-    ax1.set_xlabel("Client")
     ax1.set_ylabel("Demand [MWh]")
-    ax1.set_xticks(list(x), display_labels, rotation=45)
-
-    ax2 = ax1.twinx()
-    ax2.bar(x, pv_values, color=style.PALETTE["orange"], alpha=0.7, label="PV Coverage")
+    ax1.set_yscale("log")
+    ax1.set_xticks([])
+    ax1.legend(loc="upper left", facecolor="white", edgecolor="black")
+    
+    # Bottom subplot: PV Coverage
+    ax2.bar(x, pv_values, color=style.PALETTE["orange"], alpha=0.7, label="PV Coverage [%]")
+    ax2.set_xlabel("Client")
     ax2.set_ylabel("PV Coverage [%]")
-
-    handles1, labels1 = ax1.get_legend_handles_labels()
-    handles2, labels2 = ax2.get_legend_handles_labels()
-    ax1.legend(
-        handles1 + handles2, labels1 + labels2,
-        loc="upper left", facecolor="white", edgecolor="black",
-    )
+    ax2.set_xticks(list(x), display_labels, rotation=45)
+    ax2.legend(loc="upper left", facecolor="white", edgecolor="black")
+    
     fig.tight_layout()
 
     return fig
