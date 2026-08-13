@@ -4,7 +4,7 @@
 include("../common_setup.jl")
 
 # --- External Packages ---
-using Plots, Dates, Random, Combinatorics, Serialization, DataFrames #,StatsPlots
+using Dates, Random, Combinatorics, Serialization, DataFrames, CSV, JSON
 Random.seed!(1) # Set seed for reproducibility
 
 # =========================
@@ -172,7 +172,7 @@ end
 
 
 # =========================
-# 4. Scatter Plot: Cost per MWh vs Individualization Step
+# 4. Export: Cost per MWh vs Individualization Step
 # =========================
 # Flip sign to go from the negative-is-cost convention to positive-for-display
 mixed_allocation_cost_per_mwh_df_plot = copy(mixed_allocation_cost_per_mwh_df)
@@ -180,45 +180,13 @@ for client in clients
     mixed_allocation_cost_per_mwh_df_plot[!, client] = -mixed_allocation_cost_per_mwh_df[!, client]
 end
 
-p = plot(
-    #title = "Client Cost per MWh vs Individualization Grade",
-    xlabel = "Individualization Grade",
-    ylabel = "Imbalance Cost per MWh (EUR/MWh)",
-    background_color = :white,
-    foreground_color_subplot = :black,
-    size = (780, 600),
-    guidefontsize=16,
-    legendfontsize=14
-)
-
-# Create color gradient from blue (high cost) to pink (low cost) based on final individualized cost
-final_costs = [mixed_allocation_cost_per_mwh_df_plot[end, client] for client in clients]
-cost_order = sortperm(final_costs, rev=true)  # High to low
-color_gradient = range(colorant"#0066CC", stop=colorant"#FF69B4", length=length(clients))
-palette_colors = [color_gradient[findfirst(==(i), cost_order)] for i in 1:length(clients)]
-
-for (i, client) in enumerate(clients)
-    plot!(p,
-        mixed_allocation_cost_per_mwh_df_plot.step,
-        mixed_allocation_cost_per_mwh_df_plot[!, client],
-        label = (i == 1 ? "Individual Client Cost" : ""),
-        color = palette_colors[i],
-        lw = 1,
-        # Increase axis label and tick font sizes
-        xguidefont = font(18),
-        yguidefont = font(18),
-        xtickfont = font(14),
-        ytickfont = font(14),
-    )
-end
-
-# Add vertical line where max excess becomes negative
-if !isnothing(negative_excess_step)
-    vline!(p, [negative_excess_step],
-           color = :red,
-           linestyle = :dash,
-           linewidth = 2,
-           label = "Line of Stability")
-end
-
-display(p)
+# Plotting is done from Python (see python/figures/socialized_vs_individualized.py); this
+# script only runs the simulation/optimization and exports the plot-ready result.
+out_dir = joinpath(@__DIR__, "..", "..", "results", "cache_py", "socialized_vs_individualized")
+mkpath(out_dir)
+CSV.write(joinpath(out_dir, "mixed_allocation_cost_per_mwh.csv"), mixed_allocation_cost_per_mwh_df_plot)
+write(joinpath(out_dir, "meta.json"), JSON.json(Dict(
+    "clients" => clients,
+    "negative_excess_step" => negative_excess_step,
+)))
+println("Exported socialized-vs-individualized results to ", out_dir)

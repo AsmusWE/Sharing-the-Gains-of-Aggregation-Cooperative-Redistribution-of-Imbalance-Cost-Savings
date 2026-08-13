@@ -383,7 +383,6 @@ function nucleolus(clients, coalition_costs)
 
     # Build coalition indices and coalition-cost vector more efficiently
     coalition_costs_vec = Vector{Float64}(undef, n_coalitions)
-    GC.gc()  # Force garbage collection to reduce memory fragmentation
     for (i, coalition) in enumerate(coalitions)
         # Convert client names to indices for faster constraint building
         coalition_indices[i] = [client_to_idx[client] for client in coalition]

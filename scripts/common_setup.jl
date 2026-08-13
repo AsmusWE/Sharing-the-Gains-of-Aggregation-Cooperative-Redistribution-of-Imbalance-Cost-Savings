@@ -7,6 +7,7 @@ include("../src/Imbalance_functions.jl")
 include("../src/Game_theoretic_functions.jl")
 include("../src/Plotting_functions.jl")
 include("../src/Types.jl")
+include("../src/Export_functions.jl")
 
 # Named presets for which allocation mechanisms to calculate.
 const ALLOCATION_PRESETS = Dict(
