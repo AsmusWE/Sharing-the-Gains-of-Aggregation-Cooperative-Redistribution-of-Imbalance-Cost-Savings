@@ -2,6 +2,7 @@ using CSV
 using DataFrames
 using Dates, Statistics
 using Random
+using TimeZones
 
 const DATA_PUBLIC_DIR = joinpath(@__DIR__, "..", "data", "public")
 const DATA_PRIVATE_DIR = joinpath(@__DIR__, "..", "data", "private")
@@ -30,7 +31,7 @@ client's demand, applied uniformly across all timesteps) using the global RNG. C
 function load_data()
     # --- Load demand data ---
     demand = CSV.read(joinpath(DATA_PRIVATE_DIR, "consumption_data.csv"), DataFrame)
-    demand[!, :HourUTC_datetime] = DateTime.(demand[!, :datetime_cet], DateFormat("yyyy-mm-dd HH:MM:SSz")) .- Hour(1) # Fixed (non-DST-aware) CET -> UTC conversion (CET is UTC+1)
+    demand[!, :HourUTC_datetime] = DateTime.(astimezone.(ZonedDateTime.(String.(demand[!, :datetime_cet]), DateFormat("yyyy-mm-dd HH:MM:SSzzz")), tz"UTC")) # datetime_cet carries its own UTC offset (DST-aware); convert to true UTC
     select!(demand, Not(:datetime_cet))
     demand = demand_scaling!(demand, names(demand[!, Not([:HourUTC_datetime])]))
 
