@@ -4,9 +4,9 @@ using DataFrames, CSV, Dates
 
 plotted_allocations = [
     "shapley",
-    #"MCC",
+    "MCC",
     #"MCC_budget_balanced",
-    #"VCG",
+    "VCG",
     "gately",
     #"gately_interval",
     "marginal_price", # Uniform price for cost

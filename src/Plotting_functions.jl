@@ -239,31 +239,30 @@ function plot_results(
         end
     end
 
-    p_cost_ratio = plot(
-        #title="Imbalance cost contribution vs individual cost\n Noise Demand Forecast, Perfect PV Forecast",
-        xlabel="Client",
-        ylabel="Relative Cost [%]",
-        xticks=(1:length(plot_keys), plot_keys_alphabetic),
-        xrotation=45,
-        markersize = 2,
-        #ylim=(0, 105),
-        #legend=:bottomleft,
-        size = (320, 200),
-        tickfont=font(6, "Times Roman"),
-        guidefont=font(8, "Times Roman"),
-        legendfont=font(6, "Times Roman")
-    )
-    marker_shapes = [:circle, :rect, :diamond, :utriangle, :dtriangle, :cross, :xcross, :star5]
-    shape_idx = 1
+    # One subplot per allocation method, arranged in a 3x2 grid with a shared y-axis scale
+    ratio_vals_all = [cost_ratio[alloc][k] for alloc in allocations if haskey(cost_ratio, alloc) for k in plot_keys]
+    ratio_y_pad = (maximum(ratio_vals_all) - minimum(ratio_vals_all)) * 0.05
+    ratio_ylim = (minimum(ratio_vals_all) - ratio_y_pad, maximum(ratio_vals_all) + ratio_y_pad)
+
+    cost_ratio_subplots = []
     for alloc in allocations
         if haskey(cost_ratio, alloc)
             label, color = allocation_labels[alloc]
             plot_vals = [cost_ratio[alloc][k] for k in plot_keys]
-            marker = marker_shapes[mod1(shape_idx, length(marker_shapes))]
-            scatter!(p_cost_ratio, 1:length(plot_keys), plot_vals, label=label, color=color, markershape=marker)
-            shape_idx += 1
+            sp = plot(
+                title=label,
+                xlabel="Client",
+                ylabel="Allocated VS Singleton Cost [%]",
+                xticks=(1:length(plot_keys), plot_keys_alphabetic),
+                xrotation=45,
+                ylim=ratio_ylim,
+                legend=false
+            )
+            scatter!(sp, 1:length(plot_keys), plot_vals, color=color)
+            push!(cost_ratio_subplots, sp)
         end
     end
+    p_cost_ratio = plot(cost_ratio_subplots..., layout=(3, 2), size=(900, 900))
     savefig(p_cost_ratio, "p_cost_ratio.svg")
     display(p_cost_ratio)
 
