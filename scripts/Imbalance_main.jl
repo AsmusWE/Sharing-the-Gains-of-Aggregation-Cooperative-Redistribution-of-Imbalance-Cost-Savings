@@ -22,7 +22,7 @@ allocations = ALLOCATION_PRESETS[:default]
 system_data, clients, demand_data = load_data()
 first_hour = minimum(system_data["price_prod_demand_df"][!, :HourUTC_datetime])
 last_hour = maximum(system_data["price_prod_demand_df"][!, :HourUTC_datetime])
-clients = filter(x -> !(x in CLIENT_EXCLUSION_PRESETS[:drop_smallest_3]), clients)
+clients = filter(x -> !(x in CLIENT_EXCLUSION_PRESETS[:none]), clients)
 
 start_hour = DateTime(2024, 01, 01, 00, 0, 0)
 #sim_days = Int(floor((last_hour - start_hour) / Dates.Day(1))) # Calculate number of days from start_hour to last_hour

@@ -10,8 +10,8 @@ include("../src/Types.jl")
 
 # Named presets for which allocation mechanisms to calculate.
 const ALLOCATION_PRESETS = Dict(
-    :default => ["shapley", "MCC", "VCG", "gately_interval", "full_cost", "flat_rate"],
-    :all => ["shapley", "MCC", "MCC_budget_balanced", "VCG", "gately", "gately_interval", "full_cost", "reduced_cost", "nucleolus", "flat_rate", "scaled"],
+    :default => ["shapley", "MCC", "VCG", "gately_interval", "marginal_price", "flat_rate"],
+    :all => ["shapley", "MCC", "MCC_budget_balanced", "VCG", "gately", "gately_interval", "marginal_price", "reduced_cost", "nucleolus", "flat_rate", "scaled"],
 )
 
 # Named presets for which clients to exclude from the analysis (client set is 22 total).

@@ -3,7 +3,7 @@ using Combinatorics, HiGHS, JuMP#, NLsolve,
 # Sign convention: allocation-mechanism functions below return per-client costs, where
 # positive means the client owes money (matching coalition_costs, which is <= 0 per
 # coalition under the two-price clamp in calculate_total_costs_specific). The one exception
-# is full_cost_allocation, which returns net transfers: a client whose individual imbalance
+# is marginal_price_allocation, which returns net transfers: a client whose individual imbalance
 # opposed the coalition's net imbalance in a given hour can legitimately receive a net
 # subsidy (a positive value) rather than a cost.
 function calculate_allocations(
@@ -18,7 +18,7 @@ function calculate_allocations(
         "VCG" => () -> deepcopy(vcg_allocation(clients, coalition_costs, coalition_imbalances, system_data)),
         "gately" => () -> deepcopy(gately_allocation(clients, coalition_costs)),
         "gately_interval" => () -> deepcopy(gately_interval_allocation(clients, coalition_imbalances, system_data)),
-        "full_cost" => () -> deepcopy(full_cost_allocation(clients, coalition_imbalances, system_data)),
+        "marginal_price" => () -> deepcopy(marginal_price_allocation(clients, coalition_imbalances, system_data)),
         "reduced_cost" => () -> deepcopy(reduced_cost_allocation(clients, coalition_imbalances, system_data)),
         "nucleolus" => () -> begin
             _, nucleolus_values = nucleolus(clients, coalition_costs)
@@ -35,7 +35,7 @@ function calculate_allocations(
         "VCG" => "VCG calculation time:",
         "gately" => "Gately calculation time:",
         "gately_interval" => "Gately calculation time, interval:",
-        "full_cost" => "Full cost transfer calculation time:",
+        "marginal_price" => "Marginal price transfer calculation time:",
         "reduced_cost" => "Reduced cost calculation time:",
         "nucleolus" => "Nucleolus calculation time:",
         "equal_share" => "Equal share calculation time:",
@@ -309,7 +309,7 @@ function vcg_allocation(clients, coalition_costs, coalition_imbalances, system_d
     return client_costs
 end
 
-function full_cost_allocation(clients, coalition_imbalances, system_data)
+function marginal_price_allocation(clients, coalition_imbalances, system_data)
     # Applies a uniform pricing redistribution of the grand coalition's cost.
     # Returns net transfers, not strictly costs: a client whose individual imbalance opposed
     # the coalition's net imbalance in a given hour can receive a net subsidy (a positive

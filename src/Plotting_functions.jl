@@ -168,7 +168,7 @@ function plot_results(
     )
     println(plot_keys)
     for alloc in allocations
-        if alloc != "full_cost"
+        if alloc != "marginal_price"
             continue
         end
         if haskey(cost_MWh, alloc)
@@ -299,10 +299,10 @@ function plot_results(
     display(p_total_demand)
 
     # Socialized vs individualized plot
-    # Check if we have both flat_rate and full_cost allocations
-    if haskey(allocation_costs, "flat_rate") && haskey(allocation_costs, "full_cost")
+    # Check if we have both flat_rate and marginal_price allocations
+    if haskey(allocation_costs, "flat_rate") && haskey(allocation_costs, "marginal_price")
         socialized_allocation = "flat_rate"
-        individualized_allocation = "full_cost"
+        individualized_allocation = "marginal_price"
         individualization_steps = 0:0.05:1
 
         # Create mixed allocation DataFrame

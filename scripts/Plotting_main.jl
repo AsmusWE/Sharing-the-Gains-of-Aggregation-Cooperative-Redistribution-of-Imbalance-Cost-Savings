@@ -9,7 +9,7 @@ plotted_allocations = [
     #"VCG",
     "gately",
     #"gately_interval",
-    "full_cost", # Uniform price for cost
+    "marginal_price", # Uniform price for cost
     #"reduced_cost",
     #"nucleolus",
     "flat_rate",
@@ -23,13 +23,13 @@ allocation_labels = Dict(
     "VCG" => ("VCG", :purple),
     "gately" => ("Gately Point", PALETTE_SAND),
     "gately_interval" => ("Gately 15Min interval", :lightgrey),
-    "full_cost" => ("Marginal Price", PALETTE_ORANGE),
+    "marginal_price" => ("Marginal Price", PALETTE_ORANGE),
     "reduced_cost" => ("Asymmetric Price", :blue),
     "nucleolus" => ("Nucleolus", :green),
     "flat_rate" => ("Flat Rate", PALETTE_RED)
 )
 
-plot_data = deserialize(joinpath(@__DIR__, "..", "results", "cache", "17ClientWeekly.jls"))
+plot_data = deserialize(joinpath(@__DIR__, "..", "results", "cache", "22ClientMonthly.jls"))
 
 wmape = Dict{String, Float64}()
 for client in plot_data.clients

@@ -12,8 +12,8 @@ Random.seed!(1) # Set seed for reproducibility
 # =========================
 # Choose which individualized allocation to calculate
 # Should be flat_rate and one other
-allocations = ["full_cost", "flat_rate"]
-individualized_allocation = "full_cost" # Choose which individualized allocation to compare to flat rate
+allocations = ["marginal_price", "flat_rate"]
+individualized_allocation = "marginal_price" # Choose which individualized allocation to compare to flat rate
 socialized_allocation = "flat_rate" # Choose which socialized allocation to compare to individualized
 
 system_data, clients, demand_data = load_data()

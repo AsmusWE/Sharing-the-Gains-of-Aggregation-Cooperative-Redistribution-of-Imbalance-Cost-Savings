@@ -80,7 +80,7 @@
 
         println("vcg_allocation (basic): PASS")
 
-        # Test the eq.-13 identity: VCG = MCC - MP (full_cost_allocation)
+        # Test the eq.-13 identity: VCG = MCC - MP (marginal_price_allocation)
         # Skip this test as it requires specific data setup that's complex
         println("vcg_allocation (eq.-13 identity): SKIPPED (requires specific data setup)")
 
@@ -203,7 +203,7 @@
         println("gately_interval_allocation (basic): PASS")
     end
 
-    @testset "full_cost_allocation" begin
+    @testset "marginal_price_allocation" begin
         clients = ["A", "B"]
         system_data = create_synthetic_system_data(clients; T=2, seed=42)
 
@@ -213,13 +213,13 @@
             ["A", "B"] => [3.0, -3.0]
         )
 
-        full_cost_values = full_cost_allocation(clients, coalition_imbalances, system_data)
+        marginal_price_values = marginal_price_allocation(clients, coalition_imbalances, system_data)
 
         # Check that result is a dict with all clients
-        @test haskey(full_cost_values, "A")
-        @test haskey(full_cost_values, "B")
+        @test haskey(marginal_price_values, "A")
+        @test haskey(marginal_price_values, "B")
 
-        println("full_cost_allocation (basic): PASS")
+        println("marginal_price_allocation (basic): PASS")
     end
 
     @testset "reduced_cost_allocation" begin
