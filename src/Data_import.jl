@@ -1,56 +1,61 @@
 using CSV
 using DataFrames
-using TimeZones
 using Dates, Statistics
+using Random
 
 const DATA_PUBLIC_DIR = joinpath(@__DIR__, "..", "data", "public")
 const DATA_PRIVATE_DIR = joinpath(@__DIR__, "..", "data", "private")
 
-function demand_scaling(demand, clients)
-    #Scale demand data - each client gets one scaling factor applied to all timesteps
+function demand_scaling!(demand, clients; rng = Random.default_rng())
+    # Scale demand data in place - each client gets one random scaling factor (±10%) applied to all timesteps
     for client in clients
-         scaling_factor = 1 + 0.1 * randn()  # One random factor per client
+         scaling_factor = 1 + 0.1 * randn(rng)  # One random factor per client
          demand[!, Symbol(client)] .= demand[!, Symbol(client)] .* scaling_factor
     end
     return demand
 end
 
 """
-    load_data() -> Dict, Vector{String}
+    load_data() -> Dict, Vector{String}, DataFrame
 
 Load and preprocess demand, PV production, price, and forecast data for all clients.
-Returns a dictionary with system data and a vector of clients without missing data.
+Returns `(system_data, clients_without_missing_data, demand)`, where `system_data` is a
+dictionary with the combined system data, `clients_without_missing_data` is a vector of
+clients with complete data, and `demand` is the raw (post-scaling) per-client demand DataFrame.
+
+Note: this injects random per-client demand noise via `demand_scaling!` (±10% of each
+client's demand, applied uniformly across all timesteps) using the global RNG. Call
+`Random.seed!(...)` before `load_data()` if reproducible output is required.
 """
 function load_data()
     # --- Load demand data ---
     demand = CSV.read(joinpath(DATA_PRIVATE_DIR, "consumption_data.csv"), DataFrame)
-    demand[!, :HourUTC_datetime] = DateTime.(demand[!, :datetime_cet], DateFormat("yyyy-mm-dd HH:MM:SSz")) .- Hour(1)
+    demand[!, :HourUTC_datetime] = DateTime.(demand[!, :datetime_cet], DateFormat("yyyy-mm-dd HH:MM:SSz")) .- Hour(1) # Fixed (non-DST-aware) CET -> UTC conversion (CET is UTC+1)
     select!(demand, Not(:datetime_cet))
-    demand = demand_scaling(demand, names(demand[!, Not([:HourUTC_datetime])]))
+    demand = demand_scaling!(demand, names(demand[!, Not([:HourUTC_datetime])]))
 
     # --- Define PV ownership ---
-    pvOwnershipDF = CSV.read(joinpath(DATA_PRIVATE_DIR, "Asset_master_data_asmus.csv"), DataFrame; decimal='.')
-    clientPVOwnership = Dict(String(row.Customer) => row.a_ppa_pct for row in eachrow(pvOwnershipDF))
+    pv_ownership_df = CSV.read(joinpath(DATA_PRIVATE_DIR, "Asset_master_data_asmus.csv"), DataFrame; decimal='.')
+    client_pv_ownership = Dict(String(row.Customer) => row.a_ppa_pct for row in eachrow(pv_ownership_df))
     # Note: Z is the solar park owner
 
     # --- Load and rescale PV production ---
-    pvProduction = CSV.read(joinpath(DATA_PUBLIC_DIR, "ProductionMunicipalityHour.csv"), DataFrame; decimal=',')
-    pvProduction[!, :HourUTC_datetime] = DateTime.(pvProduction[:, :HourUTC], DateFormat("yyyy-mm-dd HH:MM:SS"))
+    pv_production = CSV.read(joinpath(DATA_PUBLIC_DIR, "ProductionMunicipalityHour.csv"), DataFrame; decimal=',')
+    pv_production[!, :HourUTC_datetime] = DateTime.(pv_production[:, :HourUTC], DateFormat("yyyy-mm-dd HH:MM:SS"))
     # Drop all rows after January 2025 (keep up to 2025-01-31 23:59:59)
     # Done because new solar plants come online in 2025 changing the production profile
     cutoff = DateTime(2025, 2, 1)
-    filter!(row -> row.HourUTC_datetime < cutoff, pvProduction)
+    filter!(row -> row.HourUTC_datetime < cutoff, pv_production)
     plant_size = 14.0 # MW
-    old_plant_size = maximum(pvProduction[:, :SolarMWh])
-    rename!(pvProduction, :SolarMWh => :SolarMWh_unscaled)
-    pvProduction[!, :SolarMWh] = pvProduction[!, :SolarMWh_unscaled] .* plant_size / old_plant_size
-    pvProduction = select(pvProduction, [:HourUTC_datetime, :SolarMWh])
+    old_plant_size = maximum(pv_production[:, :SolarMWh])
+    rename!(pv_production, :SolarMWh => :SolarMWh_unscaled)
+    pv_production[!, :SolarMWh] = pv_production[!, :SolarMWh_unscaled] .* plant_size / old_plant_size
+    pv_production = select(pv_production, [:HourUTC_datetime, :SolarMWh])
 
     # --- Combine demand and PV production ---
-    combinedData = innerjoin(pvProduction, demand, on=:HourUTC_datetime)
-    firstHour = minimum(combinedData[:, :HourUTC_datetime])
+    combined_data = innerjoin(pv_production, demand, on=:HourUTC_datetime)
     # --- Prepare client list ---
-    clients = sort(collect(keys(clientPVOwnership)))
+    clients = sort(collect(keys(client_pv_ownership)))
 
     # --- Load and rescale PV forecast ---
     pv_forecast = CSV.read(joinpath(DATA_PUBLIC_DIR, "Solar_Forecasts_Hour.csv"), DataFrame; decimal=',')
@@ -61,139 +66,87 @@ function load_data()
     pv_forecast = select(pv_forecast, [:HourUTC_datetime, :PVForecast])
 
     # --- Merge forecast with combined data ---
-    combinedData = innerjoin(combinedData, pv_forecast, on=:HourUTC_datetime)
+    combined_data = innerjoin(combined_data, pv_forecast, on=:HourUTC_datetime)
 
     # --- Filter clients with missing data ---
-    missing_data_counts = Dict(client => count(ismissing, combinedData[:, client]) for client in clients)
+    missing_data_counts = Dict(client => count(ismissing, combined_data[:, client]) for client in clients)
     clients_without_missing_data = filter(client -> missing_data_counts[client] == 0, clients)
     # --- Filter combined data to include only clients without missing data ---
-    combinedData = select(combinedData, Cols(:HourUTC_datetime, :SolarMWh, clients_without_missing_data..., :PVForecast))
+    combined_data = select(combined_data, Cols(:HourUTC_datetime, :SolarMWh, clients_without_missing_data..., :PVForecast))
     demand = select(demand, Cols(:HourUTC_datetime, clients_without_missing_data...))
 
-    fifteenMinRes = false
-    if fifteenMinRes
-        # --- Change to 15 minute resolution for combinedData ---
-        value_cols = names(combinedData, Not(:HourUTC_datetime))
-        N = nrow(combinedData)
-        repeats = 4
-        # Repeat each row 4 times
-        expanded = combinedData[repeat(1:N, inner=repeats), :]
-        # Add 15-min offset to each repeated row
-        expanded.:HourUTC_datetime .+= Minute.(15 .* repeat(0:3, outer=N))
-        # Divide value columns by 4
-        expanded[:, value_cols] .= expanded[:, value_cols] ./ 4
-        combinedData = expanded
-        sort!(combinedData, :HourUTC_datetime)
-
-        # --- Change demand to 15 minute resolution in the same way ---
-        demand_value_cols = names(demand, Not([:HourUTC_datetime]))
-        N_demand = nrow(demand)
-        expanded_demand = demand[repeat(1:N_demand, inner=repeats), :]
-        expanded_demand.:HourUTC_datetime .+= Minute.(15 .* repeat(0:3, outer=N_demand))
-        expanded_demand[:, demand_value_cols] .= expanded_demand[:, demand_value_cols] ./ 4
-        demand = expanded_demand
-        sort!(demand, :HourUTC_datetime)
-        
-        # --- Add price data ---
-        priceData = CSV.read(joinpath(DATA_PUBLIC_DIR, "ImbalancePrice.csv"), DataFrame, decimal=',')
-        priceData[!, :HourUTC_datetime] = DateTime.(priceData[:, :TimeUTC], DateFormat("yyyy-mm-dd HH:MM:SS"))
-        priceData = select(priceData, [:HourUTC_datetime, :ImbalancePriceEUR, :SpotPriceEUR, :DominatingDirection])
-        priceData[!, :ImbalanceSpreadEUR] = priceData[!, :ImbalancePriceEUR] .- priceData[!, :SpotPriceEUR]
-        # Fill missing ImbalanceSpreadEUR values with 0.0
-        #priceData[!, :ImbalanceSpreadEUR] = coalesce.(priceData[!, :ImbalanceSpreadEUR], 0.0)
-        
-        # Fill missing DominatingDirection values based on ImbalanceSpreadEUR
-        #priceData[!, :DominatingDirection] = coalesce.(priceData[!, :DominatingDirection], 
-        #                                              sign.(priceData[!, :ImbalanceSpreadEUR]))
-        # Generate new DominatingDirection column based on ImbalanceSpreadEUR
-        # This is done because of errors in the dominatingDirection data
-        # If there are missing price values, dominatingDirection is set to 0
-        priceData[!, :DominatingDirection] = ifelse.(coalesce.(priceData[!, :ImbalanceSpreadEUR], 0.0) .> 0, 1,
-                                                            ifelse.(coalesce.(priceData[!, :ImbalanceSpreadEUR], 0.0) .< 0, -1, 0))
-        
-        priceData = select(priceData, [:HourUTC_datetime, :ImbalanceSpreadEUR, :DominatingDirection, :SpotPriceEUR])
-
-        # Merge price data with combined data
-        combinedData = innerjoin(combinedData, priceData, on=:HourUTC_datetime)
-    else
-        # First load ImbalancePrice.csv data (15-minute resolution) and aggregate to hourly
-        imbalancePriceFromDetail = CSV.read(joinpath(DATA_PUBLIC_DIR, "ImbalancePrice.csv"), DataFrame, decimal=',')
-        imbalancePriceFromDetail[!, :HourUTC_datetime] = DateTime.(imbalancePriceFromDetail[:, :TimeUTC], DateFormat("yyyy-mm-dd HH:MM:SS"))
-        # Round down to the hour to aggregate 15-minute data
-        imbalancePriceFromDetail[!, :HourUTC_datetime] = floor.(imbalancePriceFromDetail[!, :HourUTC_datetime], Hour(1))
-        # Aggregate by taking the mean of the 15-minute values within each hour
-        # Handle missing values by using skipmissing in the aggregation
-        imbalancePriceFromDetail = combine(groupby(imbalancePriceFromDetail, :HourUTC_datetime), 
-                                         :ImbalancePriceEUR => (x -> mean(skipmissing(x))) => :ImbalancePriceEUR,
-                                         :SpotPriceEUR => (x -> mean(skipmissing(x))) => :SpotPriceEUR)
+    # First load ImbalancePrice.csv data (15-minute resolution) and aggregate to hourly
+    imbalance_price_from_detail = CSV.read(joinpath(DATA_PUBLIC_DIR, "ImbalancePrice.csv"), DataFrame, decimal=',')
+    imbalance_price_from_detail[!, :HourUTC_datetime] = DateTime.(imbalance_price_from_detail[:, :TimeUTC], DateFormat("yyyy-mm-dd HH:MM:SS"))
+    # Round down to the hour to aggregate 15-minute data
+    imbalance_price_from_detail[!, :HourUTC_datetime] = floor.(imbalance_price_from_detail[!, :HourUTC_datetime], Hour(1))
+    # Aggregate by taking the mean of the 15-minute values within each hour
+    # Handle missing values by using skipmissing in the aggregation
+    imbalance_price_from_detail = combine(groupby(imbalance_price_from_detail, :HourUTC_datetime),
+                                     :ImbalancePriceEUR => (x -> mean(skipmissing(x))) => :ImbalancePriceEUR,
+                                     :SpotPriceEUR => (x -> mean(skipmissing(x))) => :SpotPriceEUR)
 
 
-        # Then load RegulatingBalancePowerdata.csv (hourly data) to supplement
-        imbalancePriceFromHourly = CSV.read(joinpath(DATA_PUBLIC_DIR, "RegulatingBalancePowerdata.csv"), DataFrame, decimal=',')
-        imbalancePriceFromHourly[!, :HourUTC_datetime] = DateTime.(imbalancePriceFromHourly[:, :HourUTC], DateFormat("yyyy-mm-dd HH:MM:SS"))
-        imbalancePriceFromHourly = select(imbalancePriceFromHourly, [:HourUTC_datetime, :ImbalancePriceEUR])
-        
-        # Combine the two imbalance price datasets, prioritizing the detailed data
-        # Use anti-join to get only the hours not already covered by the detailed data
-        additional_imbalance_data = antijoin(imbalancePriceFromHourly, imbalancePriceFromDetail, on=:HourUTC_datetime)
-        imbalancePriceData = vcat(imbalancePriceFromDetail, additional_imbalance_data, cols=:intersect)
-        
-        # Load spot price data from Elspotprices.csv
-        spotPriceFromElspot = CSV.read(joinpath(DATA_PUBLIC_DIR, "Elspotprices.csv"), DataFrame, decimal=',')
-        spotPriceFromElspot[!, :HourUTC_datetime] = DateTime.(spotPriceFromElspot[:, :HourUTC], DateFormat("yyyy-mm-dd HH:MM:SS"))
-        spotPriceFromElspot = select(spotPriceFromElspot, [:HourUTC_datetime, :SpotPriceEUR])
-        
-        # Extract spot price data from ImbalancePrice.csv (already aggregated in imbalancePriceFromDetail)
-        spotPriceFromImbalance = select(imbalancePriceFromDetail, [:HourUTC_datetime, :SpotPriceEUR])
-        
-        # Combine spot price data, prioritizing Elspot data where available
-        # Use anti-join to get only the hours not already covered by Elspot data
-        additional_spot_data = antijoin(spotPriceFromImbalance, spotPriceFromElspot, on=:HourUTC_datetime)
-        spotPriceData = vcat(spotPriceFromElspot, additional_spot_data, cols=:intersect)
-        n_missing_spot = count(ismissing, spotPriceData[!, :SpotPriceEUR])
-        # Join the price data on datetime first, then calculate spread
-        # Use leftjoin to keep all imbalance data
-        priceData = leftjoin(imbalancePriceData, spotPriceData, on=:HourUTC_datetime)
+    # Then load RegulatingBalancePowerdata.csv (hourly data) to supplement
+    imbalance_price_from_hourly = CSV.read(joinpath(DATA_PUBLIC_DIR, "RegulatingBalancePowerdata.csv"), DataFrame, decimal=',')
+    imbalance_price_from_hourly[!, :HourUTC_datetime] = DateTime.(imbalance_price_from_hourly[:, :HourUTC], DateFormat("yyyy-mm-dd HH:MM:SS"))
+    imbalance_price_from_hourly = select(imbalance_price_from_hourly, [:HourUTC_datetime, :ImbalancePriceEUR])
 
-        # Print missing value summary for SpotPriceEUR and ImbalancePriceEUR
-        n_missing_spot = count(ismissing, priceData[!, :SpotPriceEUR])
-        n_missing_imbalance = count(ismissing, priceData[!, :ImbalancePriceEUR])
+    # Combine the two imbalance price datasets, prioritizing the detailed data
+    # Use anti-join to get only the hours not already covered by the detailed data
+    additional_imbalance_data = antijoin(imbalance_price_from_hourly, imbalance_price_from_detail, on=:HourUTC_datetime)
+    imbalance_price_data = vcat(imbalance_price_from_detail, additional_imbalance_data, cols=:intersect)
 
-        # Handle missing values: If either spot price or imbalance price is missing, set both to 0
-        missing_mask = ismissing.(priceData[!, :SpotPriceEUR]) .| ismissing.(priceData[!, :ImbalancePriceEUR])
-        priceData[!, :SpotPriceEUR] = ifelse.(missing_mask, 0.0, coalesce.(priceData[!, :SpotPriceEUR], 0.0))
-        priceData[!, :ImbalancePriceEUR] = ifelse.(missing_mask, 0.0, coalesce.(priceData[!, :ImbalancePriceEUR], 0.0))
-        
-        # Calculate spread
-        priceData[!, :ImbalanceSpreadEUR] = priceData[!, :ImbalancePriceEUR] .- priceData[!, :SpotPriceEUR]
+    # Load spot price data from Elspotprices.csv
+    spot_price_from_elspot = CSV.read(joinpath(DATA_PUBLIC_DIR, "Elspotprices.csv"), DataFrame, decimal=',')
+    spot_price_from_elspot[!, :HourUTC_datetime] = DateTime.(spot_price_from_elspot[:, :HourUTC], DateFormat("yyyy-mm-dd HH:MM:SS"))
+    spot_price_from_elspot = select(spot_price_from_elspot, [:HourUTC_datetime, :SpotPriceEUR])
 
-        #Generate DominatingDirection column based on ImbalanceSpreadEUR
-        priceData[!, :DominatingDirection] = ifelse.(coalesce.(priceData[!, :ImbalanceSpreadEUR], 0.0) .> 0, 1,
-                                                            ifelse.(coalesce.(priceData[!, :ImbalanceSpreadEUR], 0.0) .< 0, -1, 0))
-        
-        # Select final columns in the same order as the fifteenMinRes branch
-        priceData = select(priceData, [:HourUTC_datetime, :ImbalanceSpreadEUR, :DominatingDirection, :SpotPriceEUR])
-        
-        # Final cleanup: replace any remaining missing values with 0.0 instead of removing rows
-        priceData[!, :ImbalanceSpreadEUR] = coalesce.(priceData[!, :ImbalanceSpreadEUR], 0.0)
-        priceData[!, :DominatingDirection] = coalesce.(priceData[!, :DominatingDirection], 0)
-        priceData[!, :SpotPriceEUR] = coalesce.(priceData[!, :SpotPriceEUR], 0.0)
-        
-        combinedData = innerjoin(combinedData, priceData, on=:HourUTC_datetime)
-    end
+    # Extract spot price data from ImbalancePrice.csv (already aggregated in imbalance_price_from_detail)
+    spot_price_from_imbalance = select(imbalance_price_from_detail, [:HourUTC_datetime, :SpotPriceEUR])
 
-    # --- Reverse the order of rows in combinedData ---
-    combinedData = reverse(combinedData)
-    #println("First hour in data: ", combinedData[1, :HourUTC_datetime])
-    #println("Last hour in data: ", combinedData[end, :HourUTC_datetime])
+    # Combine spot price data, prioritizing Elspot data where available
+    # Use anti-join to get only the hours not already covered by Elspot data
+    additional_spot_data = antijoin(spot_price_from_imbalance, spot_price_from_elspot, on=:HourUTC_datetime)
+    spot_price_data = vcat(spot_price_from_elspot, additional_spot_data, cols=:intersect)
+    # Join the price data on datetime first, then calculate spread
+    # Use leftjoin to keep all imbalance data
+    price_data = leftjoin(imbalance_price_data, spot_price_data, on=:HourUTC_datetime)
+
+    # Print missing value summary for SpotPriceEUR and ImbalancePriceEUR
+    n_missing_spot = count(ismissing, price_data[!, :SpotPriceEUR])
+    n_missing_imbalance = count(ismissing, price_data[!, :ImbalancePriceEUR])
+    println("Missing SpotPriceEUR values before fill: $n_missing_spot")
+    println("Missing ImbalancePriceEUR values before fill: $n_missing_imbalance")
+
+    # Handle missing values: If either spot price or imbalance price is missing, set both to 0
+    missing_mask = ismissing.(price_data[!, :SpotPriceEUR]) .| ismissing.(price_data[!, :ImbalancePriceEUR])
+    price_data[!, :SpotPriceEUR] = ifelse.(missing_mask, 0.0, coalesce.(price_data[!, :SpotPriceEUR], 0.0))
+    price_data[!, :ImbalancePriceEUR] = ifelse.(missing_mask, 0.0, coalesce.(price_data[!, :ImbalancePriceEUR], 0.0))
+
+    # Calculate spread
+    price_data[!, :ImbalanceSpreadEUR] = price_data[!, :ImbalancePriceEUR] .- price_data[!, :SpotPriceEUR]
+
+    # Generate DominantDirection column based on ImbalanceSpreadEUR (1 = positive spread, -1 = negative, 0 = none/missing)
+    price_data[!, :DominantDirection] = ifelse.(coalesce.(price_data[!, :ImbalanceSpreadEUR], 0.0) .> 0, 1,
+                                                        ifelse.(coalesce.(price_data[!, :ImbalanceSpreadEUR], 0.0) .< 0, -1, 0))
+
+    price_data = select(price_data, [:HourUTC_datetime, :ImbalanceSpreadEUR, :DominantDirection, :SpotPriceEUR])
+
+    # Final cleanup: replace any remaining missing values with 0.0 instead of removing rows
+    price_data[!, :ImbalanceSpreadEUR] = coalesce.(price_data[!, :ImbalanceSpreadEUR], 0.0)
+    price_data[!, :DominantDirection] = coalesce.(price_data[!, :DominantDirection], 0)
+    price_data[!, :SpotPriceEUR] = coalesce.(price_data[!, :SpotPriceEUR], 0.0)
+
+    combined_data = innerjoin(combined_data, price_data, on=:HourUTC_datetime)
+
+    # --- Reverse the order of rows in combined_data ---
+    combined_data = reverse(combined_data)
 
     # --- Collect system data ---
-    systemData = Dict(
-        #"demand" => demand,
-        "clientPVOwnership" => clientPVOwnership,
-        #"clients" => clients,
-        "price_prod_demand_df" => combinedData
+    system_data = Dict(
+        "client_pv_ownership" => client_pv_ownership,
+        "price_prod_demand_df" => combined_data
     )
-    return systemData, clients_without_missing_data, demand
+    return system_data, clients_without_missing_data, demand
 end
-

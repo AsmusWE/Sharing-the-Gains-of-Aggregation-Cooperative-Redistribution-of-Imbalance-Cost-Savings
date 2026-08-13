@@ -1,10 +1,8 @@
-include("../src/Plotting_functions.jl")
-include("../src/Imbalance_functions.jl")
-include("../src/Types.jl")
+include("common_setup.jl")
 
 using DataFrames, CSV, Dates
 
-plottedAllocations = [
+plotted_allocations = [
     "shapley",
     #"MCC",
     #"MCC_budget_balanced",
@@ -18,60 +16,51 @@ plottedAllocations = [
     #"scaled"
 ]
 
-LightGreen = RGB(150/255, 206/255, 180/255)
-Sand = RGB(255/255, 238/255, 173/255)
-Red = RGB(255/255, 111/255, 105/255)
-Orange = RGB(255/255, 204/255, 92/255)
-Green = RGB(136/255, 216/255, 176/255)
-
 allocation_labels = Dict(
-    "shapley" => ("Shapley", LightGreen),
+    "shapley" => ("Shapley", PALETTE_LIGHT_GREEN),
     "MCC" => ("MCC", :black),
     "MCC_budget_balanced" => ("MCC Budget Balanced", :orange),
     "VCG" => ("VCG", :purple),
-    "gately" => ("Gately Point", Sand),
+    "gately" => ("Gately Point", PALETTE_SAND),
     "gately_interval" => ("Gately 15Min interval", :lightgrey),
-    "full_cost" => ("Marginal Price", Orange),
+    "full_cost" => ("Marginal Price", PALETTE_ORANGE),
     "reduced_cost" => ("Asymmetric Price", :blue),
     "nucleolus" => ("Nucleolus", :green),
-    "flat_rate" => ("Flat Rate", Red)
+    "flat_rate" => ("Flat Rate", PALETTE_RED)
 )
 
-plotData = deserialize(joinpath(@__DIR__, "..", "results", "cache", "17ClientWeekly.jls"))
+plot_data = deserialize(joinpath(@__DIR__, "..", "results", "cache", "17ClientWeekly.jls"))
 
-WMAPE = Dict{String, Float64}()
-for client in plotData.clients
-    WMAPE[client] = calculate_WMAPE(plotData.imbalancesDict, plotData.systemData, client)
+wmape = Dict{String, Float64}()
+for client in plot_data.clients
+    wmape[client] = calculate_wmape(plot_data.coalition_imbalances, plot_data.system_data, client)
 end
 
 # Sort clients by total demand (highest to lowest)
-total_demands = Dict(client => sum(plotData.systemData["price_prod_demand_df"][!, Symbol(client)]) for client in plotData.clients)
-sorted_clients_pairs = sort(collect(total_demands), by = x -> -x[2])  # Sort by demand descending
-clients_sorted = [client for (client, _) in sorted_clients_pairs]
+clients_sorted = sort_clients_by_demand(plot_data.system_data, plot_data.clients)
 # Use the struct for plotting
-allocations = plotData.allocations
-allocations = filter(x -> x in plottedAllocations && x != "gately_interval", allocations)
+allocations = plot_data.allocations
+allocations = filter(x -> x in plotted_allocations, allocations)
 plot_results(
     allocations,
-    plotData.systemData,
-    plotData.allocationCosts,
-    plotData.coalitionCosts,
+    plot_data.system_data,
+    plot_data.allocation_costs,
+    plot_data.coalition_costs,
     clients_sorted,
-    plotData.start_hour,
-    plotData.sim_days,
+    plot_data.start_hour,
+    plot_data.sim_days,
     allocation_labels,
-    WMAPE
+    wmape
 )
 
 plot_cost_difference(
-    plotData.allocationCosts,
+    plot_data.allocation_costs,
     clients_sorted,
-    plotData.systemData
+    plot_data.system_data
 )
 
 # Printing max excess for each allocation method
-for alloc in plotData.allocations
-    max_excess = check_stability(plotData.allocationCosts[alloc], plotData.coalitionCosts, clients_sorted)
+for alloc in plot_data.allocations
+    max_excess = check_stability(plot_data.allocation_costs[alloc], plot_data.coalition_costs, clients_sorted)
     println("Max excess for allocation method ", alloc, ": ", max_excess)
 end
-

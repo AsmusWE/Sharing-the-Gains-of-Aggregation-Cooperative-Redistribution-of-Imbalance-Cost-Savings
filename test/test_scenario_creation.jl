@@ -63,39 +63,39 @@
         start_date = DateTime(2024, 1, 1, 0, 0, 0)
         timestamps = [start_date + Hour(i) for i in 0:100]
         
-        # Create systemData manually for error testing
+        # Create system_data manually for error testing
         df = DataFrame(
             HourUTC_datetime = timestamps,
             SolarMWh = [50.0 + i for i in 0:100],
             PVForecast = [50.0 + i for i in 0:100],
             ImbalanceSpreadEUR = [10.0 * (rand() - 0.5) for i in 0:100],
-            DominatingDirection = [ifelse(rand() > 0.5, 1, -1) for i in 0:100],
+            DominantDirection = [ifelse(rand() > 0.5, 1, -1) for i in 0:100],
             SpotPriceEUR = [50.0 + 20.0 * (rand() - 0.5) for i in 0:100],
             A = [100.0 + i for i in 0:100],
             B = [80.0 + i for i in 0:100],
             C = [60.0 + i for i in 0:100]
         )
-        
-        clientPVOwnership = Dict("A" => 0.1, "B" => 0.1, "C" => 0.1)
-        systemData = Dict(
+
+        client_pv_ownership = Dict("A" => 0.1, "B" => 0.1, "C" => 0.1)
+        system_data = Dict(
             "price_prod_demand_df" => df,
-            "clientPVOwnership" => clientPVOwnership
+            "client_pv_ownership" => client_pv_ownership
         )
-        
+
         # Test missing start_hour error
         @test_throws ErrorException generate_scenarios_imbalance_spread(
-            systemData, DateTime(2025, 1, 1, 0, 0, 0), 24; num_scenarios=5
+            system_data, DateTime(2025, 1, 1, 0, 0, 0), 24; num_scenarios=5
         )
-        
+
         println("generate_scenarios_imbalance_spread (missing start_hour error): PASS")
-        
+
         # Test insufficient historical data error
         # data_length = start_idx - 1
         # start_hour = 2024-01-01T10:00:00, start_idx = 11, data_length = 10
         # scenario_length * num_scenarios = 24 * 5 = 120 > 10, so should error
         start_hour = DateTime(2024, 1, 1, 10, 0, 0)
         @test_throws ErrorException generate_scenarios_imbalance_spread(
-            systemData, start_hour, 24; num_scenarios=5
+            system_data, start_hour, 24; num_scenarios=5
         )
         
         println("generate_scenarios_imbalance_spread (insufficient data error): PASS")

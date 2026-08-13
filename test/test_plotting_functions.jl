@@ -1,5 +1,5 @@
 # Tests for Plotting_functions.jl
-# Note: plot_results, plot_cost_difference, plot_socialised_vs_individualised are explicitly
+# Note: plot_results, plot_cost_difference, plot_socialized_vs_individualized are explicitly
 # out of scope - rendering/IO-heavy (display, hardcoded savefig to CWD), not cleanly
 # unit-testable without refactoring. Only the two pure helpers are tested here.
 
@@ -41,9 +41,9 @@
         println("create_alphabetic_client_mapping: PASS")
     end
     
-    @testset "scale_distribution!" begin
+    @testset "scale_distribution" begin
         using DataFrames
-        
+
         # Test normal case with non-zero demand
         clients = ["A", "B", "C"]
         df = DataFrame(
@@ -51,18 +51,18 @@
             B = [50.0, 150.0, 250.0],
             C = [10.0, 20.0, 30.0]
         )
-        
+
         distribution = Dict("A" => 100.0, "B" => 200.0, "C" => 300.0)
-        
-        scaled = scale_distribution!(distribution, df, clients)
-        
+
+        scaled = scale_distribution(distribution, df, clients)
+
         # Check that scaling is correct
         @test isapprox(scaled["A"], 100.0 / sum(df[:, :A]); rtol=1e-10)
         @test isapprox(scaled["B"], 200.0 / sum(df[:, :B]); rtol=1e-10)
         @test isapprox(scaled["C"], 300.0 / sum(df[:, :C]); rtol=1e-10)
-        
-        println("scale_distribution! (normal case): PASS")
-        
+
+        println("scale_distribution (normal case): PASS")
+
         # Test edge case: zero-demand client
         clients_with_zero = ["A", "B", "Zero"]
         df_zero = DataFrame(
@@ -70,22 +70,22 @@
             B = [50.0, 150.0],
             Zero = [0.0, 0.0]
         )
-        
+
         distribution_zero = Dict("A" => 100.0, "B" => 200.0, "Zero" => 300.0)
-        
-        scaled_zero = scale_distribution!(distribution_zero, df_zero, clients_with_zero)
-        
+
+        scaled_zero = scale_distribution(distribution_zero, df_zero, clients_with_zero)
+
         # Zero-demand client should have Inf or NaN, but we just check it doesn't crash
         @test haskey(scaled_zero, "A")
         @test haskey(scaled_zero, "B")
         @test haskey(scaled_zero, "Zero")
-        
-        println("scale_distribution! (zero-demand edge case): PASS")
+
+        println("scale_distribution (zero-demand edge case): PASS")
     end
-    
-    # Note: plot_results, plot_cost_difference, plot_socialised_vs_individualised
+
+    # Note: plot_results, plot_cost_difference, plot_socialized_vs_individualized
     # are explicitly out of scope as they are rendering/IO-heavy
     @testset "Plotting functions - explicitly not tested" begin
-        println("plot_results, plot_cost_difference, plot_socialised_vs_individualised: SKIPPED (rendering/IO-heavy)")
+        println("plot_results, plot_cost_difference, plot_socialized_vs_individualized: SKIPPED (rendering/IO-heavy)")
     end
 end

@@ -5,10 +5,10 @@ using Dates
 # silently drift between independently-declared copies.
 struct SimplePlotData
     allocations::Vector{String}
-    systemData::Dict{String, Any}
-    allocationCosts::Dict{String, Any}
-    coalitionCosts::Dict{Any, Any}
-    imbalancesDict::Dict{Any, Any}
+    system_data::Dict{String, Any}
+    allocation_costs::Dict{String, Any}
+    coalition_costs::Dict{Any, Any}
+    coalition_imbalances::Dict{Any, Any}
     clients::Vector{String}
     start_hour::DateTime
     sim_days::Int
