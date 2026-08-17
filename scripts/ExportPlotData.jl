@@ -14,7 +14,7 @@ include("common_setup.jl")
 # --- External Packages ---
 using Serialization
 
-cache_file_name = length(ARGS) >= 1 ? ARGS[1] : "22ClientMonthly.jls"
+cache_file_name = length(ARGS) >= 1 ? ARGS[1] : "AllClientMonthly.jls"
 cache_name = first(splitext(cache_file_name))
 
 plot_data = deserialize(joinpath(@__DIR__, "..", "results", "cache", cache_file_name))

@@ -16,9 +16,7 @@ from data_io import create_alphabetic_client_mapping, sort_clients_by_demand
 
 
 def plot_pv_coverage(price_prod_demand_df, client_pv_ownership, clients):
-    # Sort by demand (highest to lowest) and drop the 2 smallest clients, matching
-    # PVCoverage.jl's `sort_clients_by_demand(system_data, clients)[1:end-2]`.
-    sorted_clients = sort_clients_by_demand(price_prod_demand_df, clients)[:-2]
+    sorted_clients = sort_clients_by_demand(price_prod_demand_df, clients)
     client_name_mapping = create_alphabetic_client_mapping(sorted_clients)
     display_labels = [client_name_mapping[c] for c in sorted_clients]
 
@@ -38,18 +36,20 @@ def plot_pv_coverage(price_prod_demand_df, client_pv_ownership, clients):
     x = range(1, len(sorted_clients) + 1)
     
     # Top subplot: Demand with logarithmic y-axis
-    ax1.bar(x, demand_values, color=style.PALETTE["light_green"], label="Demand [MWh]")
+    ax1.bar(x, demand_values, color=style.PALETTE["light_green"], label="Demand [MWh]", zorder=3)
     ax1.set_ylabel("Demand [MWh]")
     ax1.set_yscale("log")
-    ax1.set_xticks([])
-    ax1.legend(loc="upper left", facecolor="white", edgecolor="black")
-    
+    ax1.set_ylim(bottom=10)
+    ax1.set_xticks(list(x))
+    ax1.tick_params(axis="x", labelbottom=False)
+    ax1.grid(axis="y", color="gray", alpha=0.3, linewidth=0.5, zorder=0)
+
     # Bottom subplot: PV Coverage
-    ax2.bar(x, pv_values, color=style.PALETTE["orange"], alpha=0.7, label="PV Coverage [%]")
-    ax2.set_xlabel("Client")
+    ax2.bar(x, pv_values, color=style.PALETTE["orange"], alpha=1, label="PV Coverage [%]", zorder=3)
+    ax2.set_xlabel("Consumer")
     ax2.set_ylabel("PV Coverage [%]")
     ax2.set_xticks(list(x), display_labels, rotation=45)
-    ax2.legend(loc="upper left", facecolor="white", edgecolor="black")
+    ax2.grid(axis="y", color="gray", alpha=0.3, linewidth=0.5, zorder=0)
     
     fig.tight_layout()
 

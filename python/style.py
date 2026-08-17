@@ -21,10 +21,42 @@ FIGURES_DIR = RESULTS_DIR / "figures"
 
 DEFAULT_FIGSIZE = (8, 5)
 
+# Matches the IEEEtran default typesetting (no extra font package -> Computer/Latin Modern
+# serif, 10pt body text), so that \input{}-ing a figure's .pgf into the paper renders text
+# identically to the surrounding LaTeX. pgf.rcfonts=False stops matplotlib from overriding
+# this with system fonts. Applied globally in apply_theme(), not just around the .pgf save:
+# axis/tick labels bake in rcParams['font.family'] at the moment ax.set_xlabel() etc. is
+# called (inside each figure's plotting function), not at savefig time, so scoping this to
+# only the .pgf save left labels in the seaborn default (sans) while tick text -- resolved
+# fresh at draw time -- picked up serif, producing a mismatched figure.
+PGF_RC = {
+    "pgf.texsystem": "pdflatex",
+    "font.family": "serif",
+    "pgf.rcfonts": False,
+    "font.size": 10,
+    "axes.labelsize": 10,
+    "xtick.labelsize": 10,
+    "ytick.labelsize": 10,
+    "legend.fontsize": 10,
+}
+
+# IEEEtran \columnwidth in inches. The .pgf is rendered at this physical width (preserving
+# each figure's on-screen aspect ratio) so it can be \input{} straight into the paper with
+# no \resizebox -- resizing after the fact would scale the embedded 10pt text along with
+# the box and defeat the point of matching PGF_RC's font size to the paper.
+PGF_WIDTH_IN = 3.5
+
+# IEEEtran \textwidth (both columns + the gutter between them) in inches, for figures meant
+# to be \input{} inside a `figure*` (spans both columns) rather than a single-column `figure`.
+PGF_TEXTWIDTH_IN = 7.16
+
 
 def apply_theme():
-    """Call once at start-up: seaborn base theme with a plain white background/axes."""
+    """Call once at start-up: seaborn base theme with a plain white background/axes,
+    styled to match PGF_RC (see there) so on-screen PNGs already preview how the .pgf
+    will look in the paper."""
     sns.set_theme(style="white")
+    plt.rcParams.update(PGF_RC)
     plt.rcParams["figure.figsize"] = DEFAULT_FIGSIZE
     plt.rcParams["axes.edgecolor"] = "black"
     plt.rcParams["axes.facecolor"] = "white"
@@ -32,11 +64,33 @@ def apply_theme():
     plt.rcParams["savefig.facecolor"] = "white"
 
 
-def save_figure(fig, name, dpi=200):
-    """Save a figure to results/figures/<name>.png, creating the directory if needed."""
+def save_figure(fig, name, dpi=200, pgf_width_in=None):
+    """Save a figure to results/figures/<name>.png and results/figures/<name>.pgf,
+    creating the directory if needed. The .pgf is typeset by a local LaTeX install (see
+    PGF_RC), at its true print size (PGF_WIDTH_IN by default, or `pgf_width_in` if given --
+    pass PGF_TEXTWIDTH_IN for a figure meant to span both columns via `figure*`), so it can
+    be \\input{} straight into the paper with no \\resizebox -- resizing after the fact would
+    scale the embedded 10pt text along with the box and defeat the point of matching
+    PGF_RC's font size to the paper. If that LaTeX pass fails (e.g. an unescaped special
+    character), the .pgf is skipped with a warning rather than losing the .png."""
     FIGURES_DIR.mkdir(parents=True, exist_ok=True)
     path = FIGURES_DIR / f"{name}.png"
     fig.savefig(path, dpi=dpi, bbox_inches="tight")
+
+    pgf_width_in = pgf_width_in or PGF_WIDTH_IN
+    pgf_path = FIGURES_DIR / f"{name}.pgf"
+    orig_size = fig.get_size_inches()
+    pgf_height = pgf_width_in * orig_size[1] / orig_size[0]
+    try:
+        fig.set_size_inches(pgf_width_in, pgf_height)
+        fig.tight_layout()
+        fig.savefig(pgf_path)
+    except Exception as e:
+        print(f"  warning: could not render {pgf_path.name} via LaTeX ({e})")
+        pgf_path.unlink(missing_ok=True)
+    finally:
+        fig.set_size_inches(*orig_size)
+
     return path
 
 

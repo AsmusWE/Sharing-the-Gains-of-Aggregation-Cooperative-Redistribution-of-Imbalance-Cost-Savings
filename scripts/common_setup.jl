@@ -11,7 +11,7 @@ include("../src/Export_functions.jl")
 
 # Named presets for which allocation mechanisms to calculate.
 const ALLOCATION_PRESETS = Dict(
-    :default => ["shapley", "MCC", "VCG", "gately_interval", "marginal_price", "flat_rate"],
+    :default => ["shapley", "MCC", "VCG", "gately", "marginal_price", "flat_rate"],
     :all => ["shapley", "MCC", "MCC_budget_balanced", "VCG", "gately", "gately_interval", "marginal_price", "reduced_cost", "nucleolus", "flat_rate", "scaled"],
 )
 

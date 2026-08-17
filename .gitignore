@@ -1,6 +1,6 @@
 # --- Data ---
 # NDA-covered client data; not distributable, see data/sources.txt.
-data/private/
+data/private/*
 
 # --- Simulation outputs ---
 # Serialized run outputs and generated plots are reproducible from the scripts,
@@ -27,3 +27,5 @@ Codes/Results/
 Thumbs.db
 .DS_Store
 desktop.ini
+
+python/__pycache__/*

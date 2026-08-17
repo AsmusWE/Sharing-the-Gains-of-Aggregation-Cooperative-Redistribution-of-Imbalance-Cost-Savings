@@ -15,7 +15,7 @@ Random.seed!(1) # Set seed for reproducibility
 # 1. Data Loading & Setup
 # =========================
 # Choose which calculations to run
-file_name = "19ClientWeekly.jls"
+file_name = "AllClientMonthly.jls"
 
 allocations = ALLOCATION_PRESETS[:default]
 
@@ -29,6 +29,7 @@ start_hour = DateTime(2024, 01, 01, 00, 0, 0)
 sim_days = 366
 println("Simulation period: ", start_hour, " to ", start_hour + Dates.Day(sim_days))
 println("Number of simulation days: ", sim_days)
+flush(stdout)
 num_scenarios_demand = 5 # Number of scenarios for demand
 num_scenarios_price = 50 # Number of scenarios for imbalance spread
 spread_scens_length = 1 # Sets the length of the imbalance spread scenarios, will repeat after this if necessary
@@ -64,6 +65,7 @@ demand_data = set_period(demand_data, start_hour, sim_days)
 # =========================
 coalitions = collect(combinations(clients)) # Full set of coalitions for simple plot
 println("Calculating costs for simple plot...")
+flush(stdout)
 
 # Only retain coalitions that are needed for imbalance calculations (singletons, full coalition, and all coalitions missing one client)
 needed_imbalance_coalitions = Set(vcat(
@@ -87,6 +89,7 @@ for period in 1:num_periods
     days_in_period = min(reconciliation_period_days, sim_days - period_start_day + 1)
 
     println("Processing period $period of $num_periods (days $period_start_day to $(period_start_day + days_in_period - 1))")
+    flush(stdout)
 
     # Create system data for this period
     period_start = start_hour + Dates.Day(period_start_day - 1)
@@ -118,6 +121,7 @@ allocation_costs = calculate_allocations(
 )
 
 println("Total costs: ", coalition_costs[clients])
+flush(stdout)
 
 # Save cost data for plotting
 plot_data = SimplePlotData(
@@ -138,4 +142,5 @@ GC.gc() # Run garbage collection to free memory after processing
 for allocation in allocations
     max_excess = check_stability(allocation_costs[allocation], coalition_costs, clients)
     println("Max excess for ", allocation, ": ", max_excess)
+    flush(stdout)
 end

@@ -35,14 +35,14 @@ from figures import gains_of_aggregation, main_results, pv_coverage, socialized_
 # `22ClientMonthly.jls` and Gains_Of_Aggregation.jl's `17ClientWeekly.jls`. Only
 # 22ClientMonthly is guaranteed present out of the box; re-run Imbalance_main.jl with a
 # different `file_name`/client set and re-export to point this at a different cache.
-MAIN_CACHE_NAME = "22ClientMonthly"
-GAINS_CACHE_NAME = "22ClientMonthly"
+MAIN_CACHE_NAME = "AllClientMonthly"
+GAINS_CACHE_NAME = "AllClientMonthly"
 
 PLOTTED_ALLOCATIONS = [
     "shapley",
     "MCC",
     "VCG",
-    "gately_interval",
+    "gately",
     "marginal_price",
     "flat_rate",
 ]
@@ -61,9 +61,15 @@ ALLOCATION_LABELS = {
 }
 
 
+# Figures wide enough (e.g. a multi-panel grid) to warrant a `figure*` (both columns) in
+# the paper, rather than a single-column `figure`.
+WIDE_FIGURES = {"p_cost_ratio"}
+
+
 def _save_all(figures: dict, prefix: str = ""):
     for name, fig in figures.items():
-        path = style.save_figure(fig, f"{prefix}{name}" if prefix else name)
+        pgf_width_in = style.PGF_TEXTWIDTH_IN if name in WIDE_FIGURES else None
+        path = style.save_figure(fig, f"{prefix}{name}" if prefix else name, pgf_width_in=pgf_width_in)
         print(f"  saved {path}")
         plt.close(fig)
 

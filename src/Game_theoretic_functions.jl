@@ -427,6 +427,9 @@ function nucleolus(clients, coalition_costs)
     iteration = 0
     dual_tol = 1e-7
 
+    println("Nucleolus: $n_clients clients, $n_coalitions coalitions")
+    flush(stdout)
+
     while iteration < max_iterations
         iteration += 1
         optimize!(model)
@@ -460,6 +463,9 @@ function nucleolus(clients, coalition_costs)
                 push!(newly_locked, mask)
             end
         end
+        println("Nucleolus iteration $iteration: max_excess = $(round(max_excess_val, digits=4)), locked = $(count(locked_status))/$(n_coalitions - 1), newly locked = $(length(newly_locked))")
+        flush(stdout)
+
         isempty(newly_locked) && break
 
         for mask in newly_locked

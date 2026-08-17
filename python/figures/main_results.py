@@ -43,7 +43,7 @@ def _plot_socialized_vs_individualized(mixed_allocation_df, clients, demand_df, 
         ax.plot(
             plot_df["step"], plot_df[c],
             color=colors[i], linewidth=2,
-            label="Client Cost" if i == 0 else None,
+            label="Consumer Cost" if i == 0 else None,
         )
     if negative_excess_step is not None:
         ax.axvline(
@@ -77,7 +77,7 @@ def plot_results(
     client_name_mapping = create_alphabetic_client_mapping(clients)
     plot_keys_alphabetic = [client_name_mapping[c] for c in plot_keys]
 
-    skip_allocations = {"MCC", "VCG", "nucleolus"}
+    skip_allocations = {"VCG", "nucleolus"}
     # Order taken from the `allocations` argument (deterministic) rather than Julia's
     # unspecified Dict iteration order, restricted to allocations we actually have costs for.
     allocations = [a for a in allocations if a in allocation_costs and a not in skip_allocations]
@@ -90,7 +90,7 @@ def plot_results(
         label, color = allocation_labels[alloc]
         vals = [-cost_MWh[alloc][k] for k in plot_keys]
         ax.scatter(range(1, len(plot_keys) + 1), vals, label=label, color=color)
-    ax.set_xlabel("Client")
+    ax.set_xlabel("Consumer")
     ax.set_ylabel("Imbalance cost [€/MWh]")
     ax.set_xticks(range(1, len(plot_keys) + 1), plot_keys_alphabetic, rotation=45)
     ax.legend()
@@ -107,7 +107,7 @@ def plot_results(
     fig, ax = plt.subplots()
     ax.bar(range(1, len(plot_keys) + 1), [pv_coverage_ratio[c] for c in plot_keys])
     ax.set_title("PV Coverage of Demand")
-    ax.set_xlabel("Client")
+    ax.set_xlabel("Consumer")
     ax.set_ylabel("PV Coverage [%]")
     ax.set_xticks(range(1, len(plot_keys) + 1), plot_keys_alphabetic, rotation=45)
     ax.set_ylim(0, 210)
@@ -148,8 +148,8 @@ def plot_results(
         label, color = allocation_labels[alloc]
         vals = [allocation_costs[alloc][k] for k in plot_keys]
         ax.scatter(range(1, len(plot_keys) + 1), vals, label=label, color=color)
-    ax.set_title("Total imbalance cost per client")
-    ax.set_xlabel("Client")
+    ax.set_title("Total imbalance cost per consumer")
+    ax.set_xlabel("Consumer")
     ax.set_ylabel("€")
     ax.set_xticks(range(1, len(plot_keys) + 1), plot_keys_alphabetic, rotation=45)
     ax.legend()
@@ -168,17 +168,38 @@ def plot_results(
     ratio_y_pad = (max(ratio_vals_all) - min(ratio_vals_all)) * 0.05
     ratio_ylim = (min(ratio_vals_all) - ratio_y_pad, max(ratio_vals_all) + ratio_y_pad)
 
-    fig, axes = plt.subplots(3, 2, figsize=(12, 10))
-    for ax, alloc in zip(axes.flat, allocations):
+    # flat_rate is shown as a reference overlay on every panel instead of getting its own.
+    grid_allocations = [a for a in allocations if a != "flat_rate"]
+    flat_label, flat_color = allocation_labels.get("flat_rate", (None, None))
+    flat_vals = [cost_ratio["flat_rate"][k] for k in plot_keys] if "flat_rate" in cost_ratio else None
+
+    # Size the grid to the number of panels actually needed (rather than a fixed 3x2) so
+    # there's no empty hidden row reserving blank space -- that blank space gets cropped
+    # out of the .png by save_figure's bbox_inches="tight" but not out of the .pgf, which
+    # must keep its exact physical width for figure* and so cannot be cropped after the fact.
+    n_cols = 2
+    n_rows = -(-len(grid_allocations) // n_cols)  # ceil division
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(6 * n_cols, 10 / 3 * n_rows))
+    # 3/4 the default marker diameter (matplotlib's default scatter size is
+    # rcParams['lines.markersize'] ** 2 = 36; scatter's `s` is area, so diameter scaling
+    # needs squaring).
+    marker_size = (plt.rcParams["lines.markersize"] * 3 / 4) ** 2
+    for ax, alloc in zip(axes.flat, grid_allocations):
         label, color = allocation_labels[alloc]
         vals = [cost_ratio[alloc][k] for k in plot_keys]
-        ax.scatter(range(1, len(plot_keys) + 1), vals, color=color)
+        ax.scatter(range(1, len(plot_keys) + 1), vals, color=color, label=label, s=marker_size)
+        if flat_vals is not None:
+            ax.scatter(
+                range(1, len(plot_keys) + 1), flat_vals,
+                color=flat_color, marker="x", label=flat_label, s=marker_size,
+            )
         ax.set_title(label)
-        ax.set_xlabel("Client")
-        ax.set_ylabel("Allocated VS Singleton Cost [%]")
+        ax.set_xlabel("Consumer")
+        ax.set_ylabel("Consumer Allocation Ratio [%]")
         ax.set_xticks(range(1, len(plot_keys) + 1), plot_keys_alphabetic, rotation=45)
         ax.set_ylim(*ratio_ylim)
-    for ax in axes.flat[len(allocations):]:
+        ax.legend(fontsize=8)
+    for ax in axes.flat[len(grid_allocations):]:
         ax.set_visible(False)
     fig.tight_layout()
     figures["p_cost_ratio"] = fig
@@ -202,7 +223,7 @@ def plot_results(
     total_MWh_demand = {c: day_data[c].sum() for c in plot_keys}
     fig, ax = plt.subplots()
     ax.bar(range(1, len(plot_keys) + 1), [total_MWh_demand[c] for c in plot_keys], color="black")
-    ax.set_xlabel("Client")
+    ax.set_xlabel("Consumer")
     ax.set_ylabel("Total Demand [MWh]")
     ax.set_xticks(range(1, len(plot_keys) + 1), plot_keys_alphabetic, rotation=45)
     fig.tight_layout()
@@ -261,7 +282,7 @@ def plot_cost_difference(allocation_costs, clients, price_prod_demand_df):
     fig, ax = plt.subplots()
     ax.bar(range(1, len(clients) + 1), [cost_percent_increase[c] for c in clients], color="blue")
     ax.set_title("Cost Increase: Percentage")
-    ax.set_xlabel("Client")
+    ax.set_xlabel("Consumer")
     ax.set_ylabel("Percentage Increase [%]")
     ax.set_xticks(range(1, len(clients) + 1), clients_alphabetic, rotation=45)
     fig.tight_layout()
@@ -270,13 +291,13 @@ def plot_cost_difference(allocation_costs, clients, price_prod_demand_df):
     fig, ax = plt.subplots()
     ax.bar(range(1, len(clients) + 1), [cost_absolute_difference[c] for c in clients], color="red")
     ax.set_title("Cost Increase: Absolute")
-    ax.set_xlabel("Client")
+    ax.set_xlabel("Consumer")
     ax.set_ylabel("Cost Difference [€/MWh]")
     ax.set_xticks(range(1, len(clients) + 1), clients_alphabetic, rotation=45)
     fig.tight_layout()
     figures["p_cost_diff_absolute"] = fig
 
-    print("Client\tCheapest Allocation\tCheapest €/MWh\tMost Expensive Allocation\tMost Expensive €/MWh")
+    print("Consumer\tCheapest Allocation\tCheapest €/MWh\tMost Expensive Allocation\tMost Expensive €/MWh")
     for name, min_alloc, min_cost, max_alloc, max_cost in table_rows:
         print(f"{name}\t{min_alloc}\t{min_cost:.2f}\t{max_alloc}\t{max_cost:.2f}")
 
