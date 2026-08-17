@@ -199,6 +199,7 @@ def plot_results(
         ax.set_xticks(range(1, len(plot_keys) + 1), plot_keys_alphabetic, rotation=45)
         ax.set_ylim(*ratio_ylim)
         ax.legend(fontsize=8)
+        ax.grid(axis="y")
     for ax in axes.flat[len(grid_allocations):]:
         ax.set_visible(False)
     fig.tight_layout()
