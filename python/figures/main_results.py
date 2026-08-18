@@ -179,7 +179,8 @@ def plot_results(
     # must keep its exact physical width for figure* and so cannot be cropped after the fact.
     n_cols = 2
     n_rows = -(-len(grid_allocations) // n_cols)  # ceil division
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(6 * n_cols, 10 / 3 * n_rows))
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(6 * n_cols, 10 / 3 * n_rows * 0.9))
+    axes2d = np.asarray(axes).reshape(n_rows, n_cols)
     # 3/4 the default marker diameter (matplotlib's default scatter size is
     # rcParams['lines.markersize'] ** 2 = 36; scatter's `s` is area, so diameter scaling
     # needs squaring).
@@ -193,16 +194,36 @@ def plot_results(
                 range(1, len(plot_keys) + 1), flat_vals,
                 color=flat_color, marker="x", label=flat_label, s=marker_size,
             )
-        ax.set_title(label)
-        ax.set_xlabel("Consumer")
-        ax.set_ylabel("Consumer Allocation Ratio [%]")
-        ax.set_xticks(range(1, len(plot_keys) + 1), plot_keys_alphabetic, rotation=45)
+        ax.set_xticks(range(1, len(plot_keys) + 1))
         ax.set_ylim(*ratio_ylim)
         ax.legend(fontsize=8)
         ax.grid(axis="y")
+    for ax in axes2d[:, 1:].flat:
+        ax.tick_params(axis="y", labelleft=False)
     for ax in axes.flat[len(grid_allocations):]:
         ax.set_visible(False)
+    # Only the bottom-most *visible* axis in each column gets the "Consumer" x-axis
+    # label/tick letters -- the panels above it share the same x range, so repeating
+    # them per-panel would just be clutter (a partially filled last row, e.g. 5
+    # allocations over 2 columns, means that's not always the literal last row).
+    for col in range(n_cols):
+        visible_rows = [row for row in range(n_rows) if row * n_cols + col < len(grid_allocations)]
+        if not visible_rows:
+            continue
+        bottom_row = max(visible_rows)
+        for row in visible_rows:
+            ax = axes2d[row, col]
+            if row == bottom_row:
+                ax.set_xlabel("Consumer")
+                ax.set_xticklabels(plot_keys_alphabetic, rotation=0)
+                ax.tick_params(axis="x", bottom=True)
+            else:
+                ax.tick_params(axis="x", labelbottom=False)
+    # supylabel must exist before tight_layout() so its width is accounted for in the
+    # left margin -- adding it afterwards leaves it overlapping the left column's ticks.
+    fig.supylabel("Consumer Allocation Ratio [%]")
     fig.tight_layout()
+    fig.subplots_adjust(hspace=0.08)
     figures["p_cost_ratio"] = fig
 
     # --- p_cost_ratio_vs_pv ---

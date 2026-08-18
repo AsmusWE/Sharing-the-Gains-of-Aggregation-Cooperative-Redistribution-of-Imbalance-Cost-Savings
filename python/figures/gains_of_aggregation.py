@@ -34,7 +34,7 @@ def plot_gains_of_aggregation(coalition_costs, clients):
             min_vals.append(min(all_cost_ratios[i]) * 100)
             max_vals.append(max(all_cost_ratios[i]) * 100)
 
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(figsize=(8, 4))
     ax.fill_between(
         x_vals, min_vals, max_vals,
         color=style.PALETTE["sand"], alpha=0.8, linewidth=0,
@@ -45,10 +45,11 @@ def plot_gains_of_aggregation(coalition_costs, clients):
         marker="o", markersize=3, linewidth=2,
         color=style.PALETTE["light_green"], label="Unweighted average",
     )
-    ax.set_xlabel("Number of Consumers in Coalition")
-    ax.set_ylabel("Coalition Allocation Ratio [%]")
+    ax.set_xlabel("Consumers in Coalition")
+    ax.set_ylabel("Coalition Allocation\nRatio [%]")
     ax.set_xticks(range(1, n + 1))
-    plt.setp(ax.get_xticklabels(), rotation=45)
+    plt.setp(ax.get_xticklabels(), rotation=90)
+    ax.tick_params(axis="x", bottom=True)
     ax.grid(True)
     fig.tight_layout()
 

@@ -482,8 +482,14 @@ function nucleolus(clients, coalition_costs)
                 push!(newly_locked, mask)
             end
         end
-        println("Nucleolus iteration $iteration: max_excess = $(round(max_excess_val, digits=4)), locked = $(count(locked_status))/$(n_coalitions - 1), newly locked = $(length(newly_locked))")
-        flush(stdout)
+        # Full per-iteration logging gets unusably long on degenerate instances that take
+        # thousands of iterations to converge, so only log every 500th iteration -- plus
+        # unconditionally at each of the three ways the loop can end, so the log always shows
+        # the actual final state rather than silently stopping mid-cadence.
+        if iteration % 500 == 0 || isempty(newly_locked)
+            println("Nucleolus iteration $iteration: max_excess = $(round(max_excess_val, digits=4)), locked = $(count(locked_status))/$(n_coalitions - 1), newly locked = $(length(newly_locked))")
+            flush(stdout)
+        end
 
         isempty(newly_locked) && break
 
@@ -514,11 +520,15 @@ function nucleolus(clients, coalition_costs)
 
         # Check if we're done (all coalitions except grand coalition are locked)
         if count(locked_status) >= n_coalitions - 1
+            println("Nucleolus: all coalitions locked after $iteration iterations (locked = $(count(locked_status))/$(n_coalitions - 1))")
+            flush(stdout)
             break
         end
 
         # Check if the payment vector is already uniquely determined
         if basis_rank >= n_clients
+            println("Nucleolus: payment vector uniquely determined after $iteration iterations (locked = $(count(locked_status))/$(n_coalitions - 1))")
+            flush(stdout)
             break
         end
     end

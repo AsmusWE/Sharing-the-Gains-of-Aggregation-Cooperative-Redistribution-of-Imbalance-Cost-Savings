@@ -38,6 +38,11 @@ PGF_RC = {
     "xtick.labelsize": 10,
     "ytick.labelsize": 10,
     "legend.fontsize": 10,
+    # figure.labelsize (used by fig.suptitle/supxlabel/supylabel) defaults to 'large'
+    # (~12pt) independently of axes.labelsize -- without pinning it too, a sup-label
+    # (e.g. the shared y-axis title on the p_cost_ratio grid) renders visibly larger
+    # than the per-axes labels/tick text it sits next to.
+    "figure.labelsize": 10,
 }
 
 # IEEEtran \columnwidth in inches. The .pgf is rendered at this physical width (preserving
@@ -80,10 +85,16 @@ def save_figure(fig, name, dpi=200, pgf_width_in=None):
     pgf_width_in = pgf_width_in or PGF_WIDTH_IN
     pgf_path = FIGURES_DIR / f"{name}.pgf"
     orig_size = fig.get_size_inches()
+    orig_hspace = fig.subplotpars.hspace
+    orig_wspace = fig.subplotpars.wspace
     pgf_height = pgf_width_in * orig_size[1] / orig_size[0]
     try:
         fig.set_size_inches(pgf_width_in, pgf_height)
         fig.tight_layout()
+        # tight_layout() recomputes hspace/wspace from scratch, clobbering any custom
+        # subplot spacing (e.g. hspace=0 for stacked, axis-sharing panels) a figure function
+        # set intentionally -- restore it after tight_layout has fixed up the outer margins.
+        fig.subplots_adjust(hspace=orig_hspace, wspace=orig_wspace)
         fig.savefig(pgf_path)
     except Exception as e:
         print(f"  warning: could not render {pgf_path.name} via LaTeX ({e})")
