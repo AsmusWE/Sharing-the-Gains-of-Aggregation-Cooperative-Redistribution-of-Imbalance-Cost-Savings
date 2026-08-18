@@ -372,7 +372,7 @@ function reduced_cost_allocation(clients, coalition_imbalances, system_data)
 end
 
 function nucleolus(clients, coalition_costs)
-    # Nucleolus via sequential LP peeling, with three optimizations over the naive version:
+    # Nucleolus via sequential LP peeling, with several optimizations over the naive version:
     #  - coalitions are indexed by bitmask instead of Vector{String}, so cost/membership
     #    lookups are array indexing rather than hashing string vectors
     #  - the JuMP/HiGHS model is built once and kept alive across iterations; a coalition
@@ -382,6 +382,16 @@ function nucleolus(clients, coalition_costs)
     #  - the loop stops as soon as the locked coalitions' indicator vectors (together with
     #    the budget-balance row) span R^n_clients, since the payment vector is then already
     #    uniquely determined and cannot change no matter how many coalitions remain unlocked
+    #  - each iteration's dual scan only visits coalitions that are still unlocked (a shrinking
+    #    active set), instead of re-walking every one of the n_coalitions masks on every
+    #    iteration -- on degenerate real-world instances where most lock events don't raise the
+    #    rank, iteration counts can themselves approach n_coalitions, so an unconditional
+    #    per-iteration O(n_coalitions) rescan turns into O(n_coalitions^2) overall
+    #  - the "does the locked set span R^n_clients yet" check maintains a small incrementally
+    #    updated orthonormal basis (Gram-Schmidt, capped at n_clients rows) instead of appending
+    #    every locked row to a growing matrix and recomputing a full SVD-based rank() from
+    #    scratch each iteration -- the same degenerate-instance blowup as above otherwise applies
+    #    to both the vcat and the rank() call
     n_clients = length(clients)
     n_coalitions = 2^n_clients - 1  # all nonempty subsets of clients, including the grand coalition
     grand_mask = n_coalitions        # all bits set = grand coalition
@@ -418,9 +428,19 @@ function nucleolus(clients, coalition_costs)
             coalition_costs_vec[mask] - sum(payment[j] for j in coalition_indices[mask]) <= max_excess)
     end
 
-    # Rows of locked coalitions' indicator vectors, seeded with the budget-balance row (all
-    # ones); once rank(rank_rows) == n_clients, x is uniquely pinned down.
-    rank_rows = ones(1, n_clients)
+    # Masks still awaiting a lock decision; shrinks as coalitions lock so the dual scan below
+    # never revisits an already-locked (or grand) coalition.
+    active_masks = [mask for mask in 1:n_coalitions if mask != grand_mask]
+
+    # Incrementally-maintained orthonormal basis (Gram-Schmidt) of locked coalitions' indicator
+    # vectors, seeded with the budget-balance row (all ones); once basis_rank == n_clients, x is
+    # uniquely pinned down. Capped at n_clients rows -- that's all that's ever needed to detect
+    # full rank, so unlike the naive "grow a matrix and recompute rank(...) from scratch" this
+    # never grows unbounded even if many locked rows turn out to be rank-redundant.
+    rank_tol = 1e-8
+    basis = zeros(Float64, n_clients, n_clients)
+    basis_rank = 1
+    basis[1, :] = fill(1.0 / sqrt(n_clients), n_clients)
 
     client_costs = Dict{String, Float64}()
     max_iterations = n_coalitions  # Prevent infinite loops
@@ -457,8 +477,7 @@ function nucleolus(clients, coalition_costs)
         # stages. A nonzero dual multiplier on a coalition's constraint is the correct test:
         # by complementary slackness, that coalition must be tight in every optimal solution.
         newly_locked = Int[]
-        for mask in 1:n_coalitions
-            (mask == grand_mask || locked_status[mask]) && continue
+        for mask in active_masks
             if abs(dual(coalition_constraints[mask])) > dual_tol
                 push!(newly_locked, mask)
             end
@@ -474,12 +493,24 @@ function nucleolus(clients, coalition_costs)
             delete(model, coalition_constraints[mask])
             coalition_constraints[mask] = @constraint(model,
                 coalition_costs_vec[mask] - sum(payment[j] for j in coalition_indices[mask]) == max_excess_val)
-            row = zeros(1, n_clients)
-            for j in coalition_indices[mask]
-                row[1, j] = 1.0
+
+            if basis_rank < n_clients
+                row = zeros(Float64, n_clients)
+                for j in coalition_indices[mask]
+                    row[j] = 1.0
+                end
+                for i in 1:basis_rank
+                    row .-= dot(view(basis, i, :), row) .* view(basis, i, :)
+                end
+                row_norm = norm(row)
+                if row_norm > rank_tol
+                    basis_rank += 1
+                    basis[basis_rank, :] = row ./ row_norm
+                end
             end
-            rank_rows = vcat(rank_rows, row)
         end
+
+        filter!(m -> !locked_status[m], active_masks)
 
         # Check if we're done (all coalitions except grand coalition are locked)
         if count(locked_status) >= n_coalitions - 1
@@ -487,7 +518,7 @@ function nucleolus(clients, coalition_costs)
         end
 
         # Check if the payment vector is already uniquely determined
-        if rank(rank_rows) >= n_clients
+        if basis_rank >= n_clients
             break
         end
     end
