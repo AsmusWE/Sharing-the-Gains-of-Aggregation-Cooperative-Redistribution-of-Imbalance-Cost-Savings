@@ -15,7 +15,7 @@ Random.seed!(1) # Set seed for reproducibility
 # 1. Data Loading & Setup
 # =========================
 # Choose which calculations to run
-file_name = "AllClientMonthly.jls"
+file_name = "AllClientMonthly2.jls"
 
 allocations = ALLOCATION_PRESETS[:default]
 
@@ -36,13 +36,13 @@ spread_scens_length = 1 # Sets the length of the imbalance spread scenarios, wil
 dummy = false # Whether to do dummy bidding (bid expected net consumption) instead of optimizing
 use_newsvendor = true # Whether to use newsvendor approach for imbalance cost calculation
 
-stochastic_data = Dict(
+stochastic_data = Dict{String, Any}(
     # Accepted forecast types demand: "perfect", "scenarios", "noise"
     # Accepted forecast types PV: "perfect", "scenarios"
     "pv_forecast" => "scenarios",
     "demand_forecast" => "scenarios",
     # Set standard deviations in percent for noise
-    "demand_noise_std" => 0.28,
+    #"demand_noise_std" => 0.28,
 )
 
 if stochastic_data["demand_forecast"] == "scenarios"
@@ -51,9 +51,6 @@ end
 
 stochastic_data["imbalance_spread"], stochastic_data["spot_price"] = generate_scenarios_imbalance_spread(system_data, start_hour, spread_scens_length; num_scenarios=num_scenarios_price)
 stochastic_data["dominant_direction_scenarios"] = generate_dominant_direction(stochastic_data["imbalance_spread"])
-
-# Keep original demand_data for scenario generation (needs historical data)
-original_demand_data = deepcopy(demand_data)
 
 # Cut system_data and demand_data to the simulation period
 system_data = set_period(system_data, start_hour, sim_days)
@@ -64,8 +61,6 @@ demand_data = set_period(demand_data, start_hour, sim_days)
 # 2. Imbalance Calculation and allocation
 # =========================
 coalitions = collect(combinations(clients)) # Full set of coalitions for simple plot
-println("Calculating costs for simple plot...")
-flush(stdout)
 
 # Only retain coalitions that are needed for imbalance calculations (singletons, full coalition, and all coalitions missing one client)
 needed_imbalance_coalitions = Set(vcat(
@@ -74,47 +69,40 @@ needed_imbalance_coalitions = Set(vcat(
     [filter(x -> x != c, clients) for c in clients],
 ))
 
-# Initialize accumulation dictionaries across reconciliation periods
-accumulated_coalition_costs = Dict(coalition => 0.0 for coalition in coalitions)
-accumulated_coalition_imbalances = Dict(coalition => Float64[] for coalition in coalitions if coalition in needed_imbalance_coalitions)
+# Batch over coalitions, not time, to bound memory. calculate_total_costs_specific holds every
+# requested coalition's full-year imbalance timeseries in memory at once, and the full power set
+# (2^|clients| - 1 coalitions) at full-year hourly resolution doesn't fit all at once. Batching
+# by coalition instead of by time avoids the DST-drift bug the previous 30-day reconciliation
+# chunking had (see TestTheoreticalResults.jl for the diagnosis): system_data/stochastic_data
+# are sliced to the full year exactly once, up front, and every batch reuses that same slice
+# unchanged -- there is no per-batch re-slicing of the time axis for results to drift out of
+# sync against. calculate_bids computes a multi-client coalition's bid as the sum of its
+# members' independently-computed singleton bids (no shared state across coalitions), so
+# batching the coalition list doesn't change the numbers, only the peak memory.
+coalition_batch_size = 40_000
+num_batches = Int(ceil(length(coalitions) / coalition_batch_size))
+coalition_costs = Dict{Any, Float64}()
+coalition_imbalances = Dict{Any, Vector{Float64}}()
 
-# Optimize in reconciliation periods (30 days at a time)
-reconciliation_period_days = 30
-num_periods = Int(ceil(sim_days / reconciliation_period_days))
+for (batch_idx, batch_start) in enumerate(1:coalition_batch_size:length(coalitions))
+    GC.gc() # Run garbage collection to free memory before processing each batch
+    batch_end = min(batch_start + coalition_batch_size - 1, length(coalitions))
+    batch = coalitions[batch_start:batch_end]
 
-for period in 1:num_periods
-    GC.gc() # Run garbage collection to free memory before processing each period
-    # Calculate the start day and length for this period
-    period_start_day = (period - 1) * reconciliation_period_days + 1
-    days_in_period = min(reconciliation_period_days, sim_days - period_start_day + 1)
-
-    println("Processing period $period of $num_periods (days $period_start_day to $(period_start_day + days_in_period - 1))")
+    println("Calculating costs for coalition batch $batch_idx of $num_batches ($(length(batch)) coalitions)")
     flush(stdout)
 
-    # Create system data for this period
-    period_start = start_hour + Dates.Day(period_start_day - 1)
-    period_system_data = set_period(deepcopy(system_data), period_start, days_in_period)
-
-    # Generate demand scenarios for this specific period
-    stochastic_data["demand_scenarios"] = generate_scenarios_demand_rolling(clients, original_demand_data, period_start, days_in_period; num_scenarios=num_scenarios_demand)
-
-    # Calculate costs for this period
-    period_coalition_costs, period_coalition_imbalances = calculate_total_costs_specific(
-        period_system_data, coalitions, stochastic_data, days_in_period; dummy = dummy, one_price = false, use_newsvendor = use_newsvendor
+    batch_costs, batch_imbalances = calculate_total_costs_specific(
+        system_data, batch, stochastic_data, sim_days; dummy = dummy, one_price = false, use_newsvendor = use_newsvendor
     )
 
-    # Accumulate results for this period
-    for coalition in coalitions
-        accumulated_coalition_costs[coalition] += period_coalition_costs[coalition]
+    merge!(coalition_costs, batch_costs)
+    for coalition in batch
         if coalition in needed_imbalance_coalitions
-            append!(accumulated_coalition_imbalances[coalition], period_coalition_imbalances[coalition])
+            coalition_imbalances[coalition] = batch_imbalances[coalition]
         end
     end
 end
-
-# Use accumulated results
-coalition_costs = accumulated_coalition_costs
-coalition_imbalances = accumulated_coalition_imbalances
 
 allocation_costs = calculate_allocations(
     allocations, clients, coalition_costs, coalition_imbalances, system_data; printing = false

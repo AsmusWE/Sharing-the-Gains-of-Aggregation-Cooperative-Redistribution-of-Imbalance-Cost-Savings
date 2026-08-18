@@ -166,7 +166,16 @@ end
 function calculate_bids(coalitions, system_data, stochastic_data; full_opt = false, one_price = false, use_newsvendor = true)
     # This function calculates the bids for each coalition combination
     # Set use_newsvendor = true to use newsvendor_bidding instead of optimize_imbalance
-    individual_clients = filter(c -> length(c) == 1, coalitions)
+    # Deliberately the union over all coalitions rather than filtering `coalitions` for
+    # singletons -- callers may pass a partial batch of coalitions (see Imbalance_main.jl's
+    # coalition batching) that doesn't happen to include every client's own singleton, and every
+    # client referenced by any multi-client coalition in the batch still needs its own bid
+    # computed below so `reduce(+, (bids[[client]] for client in coalition))` can find it. Also
+    # deliberately NOT all of client_pv_ownership's keys: that dict holds every raw client from
+    # the data file, including ones the caller may have filtered out (e.g. Imbalance_main.jl's
+    # CLIENT_EXCLUSION_PRESETS) before ever building `coalitions`, and those excluded clients
+    # have no entry in stochastic_data["demand_scenarios"].
+    individual_clients = [[c] for c in unique(reduce(vcat, coalitions))]
     bids = Dict()
     # Calculate bids for individual clients first
     if use_newsvendor
@@ -292,8 +301,15 @@ end
 function calculate_imbalances_specific(system_data, coalitions, stochastic_data, sim_days; dummy = false, one_price = false, use_newsvendor = true, full_opt = false)
     # Calculate imbalances for specific coalitions
     T = sim_days * 24
-    # Get all clients
-    all_clients = coalitions[argmax(length.(coalitions))]
+    # Get all clients referenced anywhere in `coalitions`. Deliberately the union over all
+    # coalitions rather than the largest single one present -- callers may pass a partial batch
+    # of coalitions (see Imbalance_main.jl's coalition batching) that doesn't happen to include
+    # the grand coalition, and every client referenced by any coalition in the batch still needs
+    # its demand/PV precomputed below. Also deliberately NOT all of client_pv_ownership's keys:
+    # that dict holds every raw client from the data file, including ones the caller may have
+    # filtered out (e.g. Imbalance_main.jl's CLIENT_EXCLUSION_PRESETS) before ever building
+    # `coalitions`, and those excluded clients have no entry in stochastic_data["demand_scenarios"].
+    all_clients = unique(reduce(vcat, coalitions))
     if dummy
         # Use dummy bidding (sum of individual medians) for bids
         bids = dummy_bidding(stochastic_data, all_clients, coalitions, system_data)
