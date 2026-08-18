@@ -482,16 +482,11 @@ function nucleolus(clients, coalition_costs)
                 push!(newly_locked, mask)
             end
         end
-        # Full per-iteration logging gets unusably long on degenerate instances that take
-        # thousands of iterations to converge, so only log every 500th iteration -- plus
-        # unconditionally at each of the three ways the loop can end, so the log always shows
-        # the actual final state rather than silently stopping mid-cadence.
-        if iteration % 500 == 0 || isempty(newly_locked)
-            println("Nucleolus iteration $iteration: max_excess = $(round(max_excess_val, digits=4)), locked = $(count(locked_status))/$(n_coalitions - 1), newly locked = $(length(newly_locked))")
+        if isempty(newly_locked)
+            println("Nucleolus: converged after $iteration iterations (locked = $(count(locked_status))/$(n_coalitions - 1), rank = $basis_rank/$n_clients)")
             flush(stdout)
+            break
         end
-
-        isempty(newly_locked) && break
 
         for mask in newly_locked
             locked_status[mask] = true
@@ -518,9 +513,23 @@ function nucleolus(clients, coalition_costs)
 
         filter!(m -> !locked_status[m], active_masks)
 
+        # Progress is tracked by rank, not raw lock count: many locked coalitions can be
+        # rank-redundant on degenerate instances (see optimizations note above), so "rank =
+        # k/n_clients" is a much more honest "how close to finishing" signal than the number of
+        # newly-locked coalitions this iteration, which says nothing about whether the payment
+        # vector actually moved any closer to being pinned down. Full per-iteration logging also
+        # gets unusably long on degenerate instances that take thousands of iterations to
+        # converge, so this only logs every 500th iteration -- plus unconditionally at each of
+        # the other two ways the loop can end below, so the log always shows the actual final
+        # state rather than silently stopping mid-cadence.
+        if iteration % 500 == 0
+            println("Nucleolus iteration $iteration: max_excess = $(round(max_excess_val, digits=4)), locked = $(count(locked_status))/$(n_coalitions - 1), rank = $basis_rank/$n_clients")
+            flush(stdout)
+        end
+
         # Check if we're done (all coalitions except grand coalition are locked)
         if count(locked_status) >= n_coalitions - 1
-            println("Nucleolus: all coalitions locked after $iteration iterations (locked = $(count(locked_status))/$(n_coalitions - 1))")
+            println("Nucleolus: all coalitions locked after $iteration iterations (rank = $basis_rank/$n_clients)")
             flush(stdout)
             break
         end
