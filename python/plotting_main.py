@@ -130,6 +130,10 @@ def run_pv_coverage():
 def run_socialized_vs_individualized():
     print("Loading socialized-vs-individualized export...")
     df, clients, negative_excess_step = load_mixed_allocation()
+    if negative_excess_step is not None:
+        print(f"Individualization grade at the line of stability: {negative_excess_step}")
+    else:
+        print("Line of stability not reached within the analyzed range")
     fig = socialized_vs_individualized.plot_socialized_vs_individualized(df, clients, negative_excess_step)
     _save_all({"socialized_vs_individualized": fig})
 

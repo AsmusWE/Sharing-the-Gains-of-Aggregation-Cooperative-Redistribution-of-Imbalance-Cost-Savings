@@ -12,8 +12,8 @@ Random.seed!(1) # Set seed for reproducibility
 # =========================
 # Choose which individualized allocation to calculate
 # Should be flat_rate and one other
-allocations = ["marginal_price", "flat_rate"]
-individualized_allocation = "marginal_price" # Choose which individualized allocation to compare to flat rate
+allocations = ["gately", "flat_rate"]
+individualized_allocation = "gately" # Choose which individualized allocation to compare to flat rate
 socialized_allocation = "flat_rate" # Choose which socialized allocation to compare to individualized
 
 system_data, clients, demand_data = load_data()
@@ -38,7 +38,7 @@ use_newsvendor = true # Whether to use newsvendor approach for imbalance cost ca
 full_opt = false # Whether to use full optimization for imbalance cost calculation, or just expected values
 
 # Individualization parameters
-individualization_steps = 0:0.05:1 # Ratio between socialized (flat rate) and individualized (uniform price) costs, 0 means all socialized, 1 means all individualized
+individualization_steps = 0:0.01:1 # Ratio between socialized (flat rate) and individualized (uniform price) costs, 0 means all socialized, 1 means all individualized
 
 stochastic_data = Dict(
     # Accepted forecast types demand: "perfect", "scenarios", "noise"

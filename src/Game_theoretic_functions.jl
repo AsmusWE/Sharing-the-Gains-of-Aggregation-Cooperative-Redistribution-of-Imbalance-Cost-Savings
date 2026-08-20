@@ -1,4 +1,4 @@
-using Combinatorics, HiGHS, JuMP, LinearAlgebra#, NLsolve,
+using Combinatorics, HiGHS, JuMP, LinearAlgebra, Serialization#, NLsolve,
 
 # Sign convention: allocation-mechanism functions below return per-client costs, where
 # positive means the client owes money (matching coalition_costs, which is <= 0 per
@@ -371,27 +371,50 @@ function reduced_cost_allocation(clients, coalition_imbalances, system_data)
     return client_costs
 end
 
-function nucleolus(clients, coalition_costs)
-    # Nucleolus via sequential LP peeling, with several optimizations over the naive version:
-    #  - coalitions are indexed by bitmask instead of Vector{String}, so cost/membership
-    #    lookups are array indexing rather than hashing string vectors
-    #  - the JuMP/HiGHS model is built once and kept alive across iterations; a coalition
-    #    that locks has its `<= max_excess` inequality swapped in place for an equality
-    #    constraint, so HiGHS can warm-start each solve from the previous basis instead of
-    #    resolving cold every iteration
-    #  - the loop stops as soon as the locked coalitions' indicator vectors (together with
-    #    the budget-balance row) span R^n_clients, since the payment vector is then already
-    #    uniquely determined and cannot change no matter how many coalitions remain unlocked
-    #  - each iteration's dual scan only visits coalitions that are still unlocked (a shrinking
-    #    active set), instead of re-walking every one of the n_coalitions masks on every
-    #    iteration -- on degenerate real-world instances where most lock events don't raise the
-    #    rank, iteration counts can themselves approach n_coalitions, so an unconditional
-    #    per-iteration O(n_coalitions) rescan turns into O(n_coalitions^2) overall
-    #  - the "does the locked set span R^n_clients yet" check maintains a small incrementally
-    #    updated orthonormal basis (Gram-Schmidt, capped at n_clients rows) instead of appending
-    #    every locked row to a growing matrix and recomputing a full SVD-based rank() from
-    #    scratch each iteration -- the same degenerate-instance blowup as above otherwise applies
-    #    to both the vcat and the rank() call
+function nucleolus(clients, coalition_costs; checkpoint_path::Union{Nothing, AbstractString} = nothing,
+    checkpoint_every::Int = 500)
+    # Nucleolus via sequential LP peeling with row (cut) generation, avoiding the naive
+    # approach's fatal flaw at n_clients ~ 19+: materializing all 2^n_clients - 1 coalitions as
+    # explicit LP rows up front. Presolving a model of that size costs seconds *per iteration*
+    # regardless of how easy the actual LP is (most of those rows are slack at any given
+    # solution), and degenerate real-world instances can need iteration counts approaching
+    # n_coalitions -- multiplying that per-iteration presolve tax into days or weeks.
+    #
+    # Instead each stage's LP starts from only the coalitions already known to matter (locked
+    # coalitions from previous stages, plus whichever cuts have been added so far) and is
+    # solved by classic cutting-plane / row generation:
+    #  - solve the current (small) master LP for (x*, max_excess*)
+    #  - compute the excess of EVERY coalition at x* directly (no solver involved: this is a
+    #    single O(n_coalitions) pass using a lowest-set-bit recursion to get sum(x*) over every
+    #    subset, then a vectorized subtract against the precomputed coalition costs)
+    #  - if some coalition's true excess exceeds max_excess* (the master was missing a binding
+    #    constraint), add ALL such violated coalitions as new <= rows in one batch and resolve
+    #    -- batching multiple cuts per round instead of just the single worst violator avoids
+    #    the slow "zigzagging" convergence that plain one-cut-at-a-time Kelley cutting planes
+    #    are prone to; since the master only has n_clients + 1 variables, a handful of rounds is
+    #    generally enough to pin down each stage's true optimum
+    #  - once nothing is violated, x* is proven optimal for the FULL (unrestricted) constraint
+    #    set: the master is a relaxation, so its optimum is a lower bound on the true one, and
+    #    x* is now shown feasible for the true problem at that same bound
+    #  - from there, locking proceeds exactly as before: tied coalitions are added to the model
+    #    if not already present, the LP is resolved once so duals are valid, and any coalition
+    #    with a nonzero dual (tight in every optimal solution, not just the returned vertex) is
+    #    locked by swapping its row for an equality at the achieved value
+    #
+    # A coalition, once added as a cut, is never removed -- so the total number of cuts added
+    # over the whole run (all stages combined) is bounded by n_coalitions regardless of how the
+    # per-stage cutting-plane rounds behave, and in practice only a small fraction of coalitions
+    # ever become active constraints.
+    #
+    # The rest of the bookkeeping (bitmask coalition indexing, incremental Gram-Schmidt rank
+    # tracking, dual-based locking) is unchanged from the original sequential-LP version.
+    #
+    # Optional checkpointing: pass checkpoint_path to periodically persist the locked set (via
+    # Serialization, not the JuMP model itself) to disk every checkpoint_every stage-lock
+    # events. If that file already exists when called, it is loaded and the run resumes from
+    # the saved locked set instead of starting over -- this is what makes a run recoverable
+    # across an HPC wall-time limit or an interrupted desktop run, since without it nothing
+    # about a run's progress is observable or reusable until the function returns.
     n_clients = length(clients)
     n_coalitions = 2^n_clients - 1  # all nonempty subsets of clients, including the grand coalition
     grand_mask = n_coalitions        # all bits set = grand coalition
@@ -411,6 +434,22 @@ function nucleolus(clients, coalition_costs)
 
     locked_status = falses(n_coalitions)
     locked_values = zeros(Float64, n_coalitions)
+    rank_tol = 1e-8
+    basis = zeros(Float64, n_clients, n_clients)
+    basis_rank = 1
+    basis[1, :] = fill(1.0 / sqrt(n_clients), n_clients)
+    stage = 0
+
+    if checkpoint_path !== nothing && isfile(checkpoint_path)
+        ckpt = deserialize(checkpoint_path)
+        locked_status = ckpt.locked_status
+        locked_values = ckpt.locked_values
+        basis = ckpt.basis
+        basis_rank = ckpt.basis_rank
+        stage = ckpt.stage
+        println("Nucleolus: resumed from checkpoint '$checkpoint_path' (locked = $(count(locked_status))/$(n_coalitions - 1), rank = $basis_rank/$n_clients)")
+        flush(stdout)
+    end
 
     model = Model(HiGHS.Optimizer)
     set_silent(model)
@@ -419,39 +458,74 @@ function nucleolus(clients, coalition_costs)
     @objective(model, Min, max_excess)
     @constraint(model, sum(payment) == coalition_costs_vec[grand_mask])
 
-    # Each non-grand coalition starts as an inequality constraint; coalition_constraints[mask]
-    # holds whichever constraint (inequality or, once locked, equality) currently represents it.
-    coalition_constraints = Vector{Any}(undef, n_coalitions)
-    for mask in 1:n_coalitions
-        mask == grand_mask && continue
+    # coalition_constraints[mask] is `nothing` until the coalition has been added to the model
+    # (as either a <= cut or, once locked, an == constraint).
+    coalition_constraints = Vector{Any}(fill(nothing, n_coalitions))
+
+    add_cut!(mask) = coalition_constraints[mask] = @constraint(model,
+        coalition_costs_vec[mask] - sum(payment[j] for j in coalition_indices[mask]) <= max_excess)
+
+    function lock!(mask, val)
+        if coalition_constraints[mask] !== nothing
+            delete(model, coalition_constraints[mask])
+        end
         coalition_constraints[mask] = @constraint(model,
-            coalition_costs_vec[mask] - sum(payment[j] for j in coalition_indices[mask]) <= max_excess)
+            coalition_costs_vec[mask] - sum(payment[j] for j in coalition_indices[mask]) == val)
+        locked_status[mask] = true
+        locked_values[mask] = val
+        if basis_rank < n_clients
+            row = zeros(Float64, n_clients)
+            for j in coalition_indices[mask]
+                row[j] = 1.0
+            end
+            for i in 1:basis_rank
+                row .-= dot(view(basis, i, :), row) .* view(basis, i, :)
+            end
+            row_norm = norm(row)
+            if row_norm > rank_tol
+                basis_rank += 1
+                basis[basis_rank, :] = row ./ row_norm
+            end
+        end
     end
 
-    # Masks still awaiting a lock decision; shrinks as coalitions lock so the dual scan below
-    # never revisits an already-locked (or grand) coalition.
-    active_masks = [mask for mask in 1:n_coalitions if mask != grand_mask]
+    # Rebuild already-locked rows from a resumed checkpoint, and seed every unlocked singleton
+    # coalition as an initial cut -- with zero coalition rows the master LP is unbounded (nothing
+    # forces max_excess up), and singletons are the cheapest possible bounding set.
+    for mask in 1:n_coalitions
+        mask == grand_mask && continue
+        if locked_status[mask]
+            coalition_constraints[mask] = @constraint(model,
+                coalition_costs_vec[mask] - sum(payment[j] for j in coalition_indices[mask]) == locked_values[mask])
+        end
+    end
+    for j in 1:n_clients
+        mask = 1 << (j - 1)
+        if !locked_status[mask]
+            add_cut!(mask)
+        end
+    end
 
-    # Incrementally-maintained orthonormal basis (Gram-Schmidt) of locked coalitions' indicator
-    # vectors, seeded with the budget-balance row (all ones); once basis_rank == n_clients, x is
-    # uniquely pinned down. Capped at n_clients rows -- that's all that's ever needed to detect
-    # full rank, so unlike the naive "grow a matrix and recompute rank(...) from scratch" this
-    # never grows unbounded even if many locked rows turn out to be rank-redundant.
-    rank_tol = 1e-8
-    basis = zeros(Float64, n_clients, n_clients)
-    basis_rank = 1
-    basis[1, :] = fill(1.0 / sqrt(n_clients), n_clients)
+    # Masks still awaiting a lock decision; shrinks as coalitions lock so the per-stage scan
+    # below never revisits an already-locked (or grand) coalition.
+    active_masks = [mask for mask in 1:n_coalitions if mask != grand_mask && !locked_status[mask]]
 
     client_costs = Dict{String, Float64}()
-    max_iterations = n_coalitions  # Prevent infinite loops
-    iteration = 0
     dual_tol = 1e-7
+    cut_tol = 1e-6
+    max_resolves = 4 * n_coalitions  # circuit breaker; never expected to bind
+    resolve_count = 0
 
-    println("Nucleolus: $n_clients clients, $n_coalitions coalitions")
+    println("Nucleolus: $n_clients clients, $n_coalitions coalitions (row generation)")
     flush(stdout)
 
-    while iteration < max_iterations
-        iteration += 1
+    function checkpoint!()
+        checkpoint_path === nothing && return
+        serialize(checkpoint_path, (; locked_status, locked_values, basis, basis_rank, stage))
+    end
+
+    while resolve_count < max_resolves
+        resolve_count += 1
         optimize!(model)
 
         if termination_status(model) != MOI.OPTIMAL
@@ -464,83 +538,107 @@ function nucleolus(clients, coalition_costs)
 
         payment_values = value.(payment)
         max_excess_val = objective_value(model)
-
         for (i, client) in enumerate(clients)
             client_costs[client] = payment_values[i]
         end
 
-        # Find coalitions that are tight in EVERY optimal solution of this stage's LP, not
-        # merely at the vertex HiGHS happened to return: when the stage LP is degenerate
-        # (multiple optima achieve max_excess_val), some coalitions can be primally tied at
-        # this particular vertex without being tied across the whole optimal face, and
-        # locking those would wrongly exclude other, equally-optimal solutions from later
-        # stages. A nonzero dual multiplier on a coalition's constraint is the correct test:
-        # by complementary slackness, that coalition must be tight in every optimal solution.
+        # Subset-sum of payment_values over every coalition, via lowest-set-bit recursion:
+        # Xs[mask] = Xs[mask with its lowest bit cleared] + payment_values[that bit's client].
+        # Each mask is computed from a strictly smaller, already-computed mask, so this is a
+        # single O(n_coalitions) pass -- no solver involved.
+        Xs = zeros(Float64, n_coalitions)
+        for mask in 1:n_coalitions
+            lowbit = mask & (-mask)
+            j = trailing_zeros(mask) + 1
+            prev = mask - lowbit
+            Xs[mask] = (prev == 0 ? 0.0 : Xs[prev]) + payment_values[j]
+        end
+
+        true_max = -Inf
+        for m in active_masks
+            e = coalition_costs_vec[m] - Xs[m]
+            if e > true_max
+                true_max = e
+            end
+        end
+
+        if true_max > max_excess_val + cut_tol
+            # Master is missing binding constraints: batch-add every violated coalition not
+            # already in the model, then resolve. Batching (rather than the single worst
+            # violator) is what keeps this from degenerating into slow one-cut-at-a-time
+            # cutting-plane convergence.
+            for m in active_masks
+                if coalition_constraints[m] === nothing && coalition_costs_vec[m] - Xs[m] > max_excess_val + cut_tol
+                    add_cut!(m)
+                end
+            end
+            continue
+        end
+
+        # No violation anywhere: max_excess_val is proven optimal for the full coalition set.
+        # Identify every coalition tied at that value, ensure each has an explicit row (needed
+        # to query its dual), resolve once more if any were newly added, then lock via
+        # complementary slackness exactly as in the pre-row-generation version.
+        tied = [m for m in active_masks if coalition_costs_vec[m] - Xs[m] >= max_excess_val - cut_tol]
+        added_tied = false
+        for m in tied
+            if coalition_constraints[m] === nothing
+                add_cut!(m)
+                added_tied = true
+            end
+        end
+        if added_tied
+            resolve_count += 1
+            optimize!(model)
+            if termination_status(model) != MOI.OPTIMAL
+                break
+            end
+            max_excess_val = objective_value(model)
+            payment_values = value.(payment)
+            for (i, client) in enumerate(clients)
+                client_costs[client] = payment_values[i]
+            end
+        end
+
         newly_locked = Int[]
-        for mask in active_masks
-            if abs(dual(coalition_constraints[mask])) > dual_tol
-                push!(newly_locked, mask)
+        for m in tied
+            if abs(dual(coalition_constraints[m])) > dual_tol
+                push!(newly_locked, m)
             end
         end
         if isempty(newly_locked)
-            println("Nucleolus: converged after $iteration iterations (locked = $(count(locked_status))/$(n_coalitions - 1), rank = $basis_rank/$n_clients)")
+            println("Nucleolus: converged after $stage stages ($resolve_count LP solves; locked = $(count(locked_status))/$(n_coalitions - 1), rank = $basis_rank/$n_clients)")
             flush(stdout)
             break
         end
 
-        for mask in newly_locked
-            locked_status[mask] = true
-            locked_values[mask] = max_excess_val
-            delete(model, coalition_constraints[mask])
-            coalition_constraints[mask] = @constraint(model,
-                coalition_costs_vec[mask] - sum(payment[j] for j in coalition_indices[mask]) == max_excess_val)
-
-            if basis_rank < n_clients
-                row = zeros(Float64, n_clients)
-                for j in coalition_indices[mask]
-                    row[j] = 1.0
-                end
-                for i in 1:basis_rank
-                    row .-= dot(view(basis, i, :), row) .* view(basis, i, :)
-                end
-                row_norm = norm(row)
-                if row_norm > rank_tol
-                    basis_rank += 1
-                    basis[basis_rank, :] = row ./ row_norm
-                end
-            end
+        stage += 1
+        for m in newly_locked
+            lock!(m, max_excess_val)
         end
-
         filter!(m -> !locked_status[m], active_masks)
 
-        # Progress is tracked by rank, not raw lock count: many locked coalitions can be
-        # rank-redundant on degenerate instances (see optimizations note above), so "rank =
-        # k/n_clients" is a much more honest "how close to finishing" signal than the number of
-        # newly-locked coalitions this iteration, which says nothing about whether the payment
-        # vector actually moved any closer to being pinned down. Full per-iteration logging also
-        # gets unusably long on degenerate instances that take thousands of iterations to
-        # converge, so this only logs every 500th iteration -- plus unconditionally at each of
-        # the other two ways the loop can end below, so the log always shows the actual final
-        # state rather than silently stopping mid-cadence.
-        if iteration % 500 == 0
-            println("Nucleolus iteration $iteration: max_excess = $(round(max_excess_val, digits=4)), locked = $(count(locked_status))/$(n_coalitions - 1), rank = $basis_rank/$n_clients")
+        if stage % 500 == 0
+            println("Nucleolus stage $stage ($resolve_count LP solves): max_excess = $(round(max_excess_val, digits=4)), locked = $(count(locked_status))/$(n_coalitions - 1), rank = $basis_rank/$n_clients")
             flush(stdout)
         end
+        if checkpoint_path !== nothing && stage % checkpoint_every == 0
+            checkpoint!()
+        end
 
-        # Check if we're done (all coalitions except grand coalition are locked)
         if count(locked_status) >= n_coalitions - 1
-            println("Nucleolus: all coalitions locked after $iteration iterations (rank = $basis_rank/$n_clients)")
+            println("Nucleolus: all coalitions locked after $stage stages ($resolve_count LP solves; rank = $basis_rank/$n_clients)")
             flush(stdout)
             break
         end
-
-        # Check if the payment vector is already uniquely determined
         if basis_rank >= n_clients
-            println("Nucleolus: payment vector uniquely determined after $iteration iterations (locked = $(count(locked_status))/$(n_coalitions - 1))")
+            println("Nucleolus: payment vector uniquely determined after $stage stages ($resolve_count LP solves; locked = $(count(locked_status))/$(n_coalitions - 1))")
             flush(stdout)
             break
         end
     end
+
+    checkpoint!()
 
     # Build final locked dictionary
     locked_dict = Dict{Vector{String}, Float64}()

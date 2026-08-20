@@ -179,7 +179,7 @@ def plot_results(
     # must keep its exact physical width for figure* and so cannot be cropped after the fact.
     n_cols = 2
     n_rows = -(-len(grid_allocations) // n_cols)  # ceil division
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(6 * n_cols, 10 / 3 * n_rows * 0.9))
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(6 * n_cols, 10 / 3 * n_rows * 0.9 * 0.8))
     axes2d = np.asarray(axes).reshape(n_rows, n_cols)
     # 3/4 the default marker diameter (matplotlib's default scatter size is
     # rcParams['lines.markersize'] ** 2 = 36; scatter's `s` is area, so diameter scaling

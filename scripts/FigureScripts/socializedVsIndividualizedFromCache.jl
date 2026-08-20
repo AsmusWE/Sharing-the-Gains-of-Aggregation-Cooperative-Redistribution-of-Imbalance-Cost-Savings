@@ -3,7 +3,7 @@
 # does from scratch. That cache already contains:
 #   - coalition_costs for the FULL power set of clients (collect(combinations(clients)) in
 #     Imbalance_main.jl), which is exactly what an exact (non-sparse) check_stability needs.
-#   - allocation_costs["flat_rate"] and ["marginal_price"], since Imbalance_main.jl computes
+#   - allocation_costs["flat_rate"] and ["gately"], since Imbalance_main.jl computes
 #     ALLOCATION_PRESETS[:default], which includes both.
 # So this script does no optimization at all -- just interpolation and dict lookups over
 # data that's already on disk.
@@ -25,7 +25,7 @@ system_data = plot_data.system_data
 allocation_costs = plot_data.allocation_costs
 coalition_costs = plot_data.coalition_costs
 
-individualized_allocation = "marginal_price"
+individualized_allocation = "gately"
 socialized_allocation = "flat_rate"
 
 for alloc in (individualized_allocation, socialized_allocation)
@@ -34,7 +34,7 @@ for alloc in (individualized_allocation, socialized_allocation)
     end
 end
 
-individualization_steps = 0:0.05:1
+individualization_steps = 0:0.01:1
 
 # =========================
 # Mixed allocation across individualization steps

@@ -210,9 +210,22 @@ flush(stdout)
 # =========================
 println()
 println("=== Check 2: Gately point existence ===")
-fraction_flip_hours = n_flip / T
-println("Fraction of hours where at least one agent can change the imbalance sign ",
-        "(condition for Gately point existence): $(round(100*fraction_flip_hours, digits=2))%")
+
+# The relevant condition for Gately point existence is not the leave-one-out sign flip used in
+# Check 1, but whether the clients' *individual* imbalances (each client on its own, i.e. the
+# singleton coalitions [c]) all share the same sign in a given hour. If they do not all match,
+# some agents are long and others short, which is the condition of interest here.
+individual_imbalances = Dict(c => coalition_imbalances[[c]] for c in clients)
+mixed_sign = falses(T)
+for t in 1:T
+    first_sign = category(individual_imbalances[clients[1]][t])
+    mixed_sign[t] = any(c -> category(individual_imbalances[c][t]) != first_sign, clients)
+end
+n_mixed_sign = count(mixed_sign)
+fraction_mixed_sign_hours = n_mixed_sign / T
+println("Fraction of hours where not all agents have the exact same individual imbalance sign ",
+        "(condition for Gately point existence): $(round(100*fraction_mixed_sign_hours, digits=2))% ",
+        "($n_mixed_sign / $T hours)")
 flush(stdout)
 
 # =========================
